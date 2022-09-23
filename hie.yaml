@@ -1,0 +1,12 @@
+
+cradle: 
+  cabal: 
+    - path: "./opal-lang/src" 
+      component: "lib:opal-lang"
+    - path: "./opal-lang/test" 
+      component: "test:test"
+    - path: "./opal-repl/src" 
+      component: "exe:opal-repl"
+
+
+

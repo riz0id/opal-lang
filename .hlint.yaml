@@ -1,0 +1,23 @@
+- arguments: [
+  --color, 
+  --cpp-simple,
+  -XMagicHash,
+  -XTemplateHaskellQuotes,
+  -XUnboxedTuples,
+  -XUnliftedNewtypes,
+]
+- ignore: { name: "Use const" }
+- ignore: { name: "Use first" }
+- ignore: { name: "Use tuple-section" }
+- modules:
+  - {name: GHC.Exts, as: GHC} 
+  - {
+    name: GHC.Magic, 
+    message: "Import GHC.Exts qualified as Exts instead",
+    within: []
+  } 
+  - {
+    name: GHC.Prim, 
+    message: "Import GHC.Exts qualified as Exts instead",
+    within: []
+  } 

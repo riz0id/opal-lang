@@ -1,0 +1,153 @@
+cabal-version: 2.4
+
+name:        opal-lang
+category:    Language
+version:     0.0.0
+synopsis:    TODO
+description: TODO 
+
+author:       jacob leach
+maintainer:   jacobleach@protonmail.com
+copyright:    2022, Jacob Leach
+homepage:     https://github.com/riz0id/opal-lang
+license:      ISC
+license-file: LICENSE
+build-type:   Simple
+
+extra-source-files:
+  CHANGELOG.md
+  README.md
+
+tested-with:
+  GHC == 9.2.2
+  GHC == 9.0.2
+
+flag llvm
+  Description: Compile using the LLVM backend.
+  Default:     False
+  Manual:      True
+
+common common
+  default-language: Haskell2010
+
+  default-extensions:
+    BangPatterns BlockArguments FlexibleContexts FlexibleInstances GADTs 
+    ImportQualifiedPost KindSignatures LambdaCase MagicHash OverloadedRecordDot 
+    NegativeLiterals UnboxedTuples UnliftedNewtypes
+
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Wcpp-undef
+    -Widentities
+    -Wmissing-export-lists
+
+  if flag(llvm) 
+    ghc-options: -fllvm 
+
+  build-depends:
+    , base >= 4.15.1 && < 4.17
+    , buffers
+    , mtl
+    , prettyprinter
+    , source-locations
+
+library
+  import:         common
+  hs-source-dirs: opal-lang/src
+
+  default-extensions:
+    DataKinds DeriveDataTypeable GeneralizedNewtypeDeriving 
+    PatternSynonyms ViewPatterns
+
+  ghc-options:
+    -j4
+
+  build-depends:
+    , containers
+    , ghc-prim
+    , primitive
+    , prim-bool 
+    , prim-bytes
+    , template-haskell 
+
+  exposed-modules:
+    Data.Exception.Memory
+    Data.IO.FileBuffer
+    Opal.AST.Atom
+    Opal.AST.Literal
+    Opal.AST.Prim
+    Opal.Common.GenSym
+    Opal.Common.Symbol
+    Opal.Expand
+    Opal.Expand.Common.Intern
+    Opal.Expand.Common.Intern.Monad
+    Opal.Expand.Context
+    Opal.Expand.Eval
+    Opal.Expand.Eval.Monad
+    Opal.Expand.Monad
+    Opal.Expand.Parse
+    Opal.Expand.Resolve
+    Opal.Expand.Resolve.Class
+    Opal.Expand.Resolve.Monad
+    Opal.Expand.Syntax
+    Opal.Expand.Syntax.Binding
+    Opal.Expand.Syntax.BindTable
+    Opal.Expand.Syntax.MultiScopeSet
+    Opal.Expand.Syntax.ScopeSet
+    Opal.Expand.Transformer
+    Opal.Expr
+    Opal.Lexer
+    Opal.Lexer.Core
+    Opal.Lexer.Error
+    Opal.Lexer.Monad
+    Opal.Print
+    Opal.Run
+
+test-suite test
+  import:         common
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: opal-lang/test
+  main-is:        Test.hs
+
+  ghc-options:
+    -threaded
+    -rtsopts
+    "-with-rtsopts=-N"
+
+  build-depends:
+    , hedgehog
+    , opal-lang
+    , tasty
+    , tasty-hedgehog 
+
+  other-modules: 
+    Test.Compat
+    Test.Core
+    Test.Expand
+    Test.Expand.Lexer
+    Test.Expand.Lexer.Core
+
+executable opal-repl
+  import:         common
+  hs-source-dirs: opal-repl/src
+  main-is:        Main.hs
+  ghc-options:    
+    -O2
+
+  build-depends:  
+    , opal-lang
+    , primitive
+    , prim-bytes
+    , prim-int
+
+  other-modules:
+    Control.Monad.Cont
+    Opal.Repl.CLI
+    Opal.Repl.Input
+    Opal.Repl.Input.Monad
+    Opal.Repl.Parse
+
+source-repository head
+  type:     git
+  location: https://github.com/riz0id/opal-lang
