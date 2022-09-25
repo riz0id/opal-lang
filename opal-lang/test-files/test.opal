@@ -1,5 +1,11 @@
-(syntax-e (syntax #t))
+
+'(#t #f #t #f)
+
+(lambda (x y) 
+  (let-syntax 
+    [const (lambda stx #'x)]
+    (const y)))
 
 (let-syntax 
-    (true #t) 
-  (syntax-local-value (syntax true)))
+  [(const-stx (lambda (x stx) x))]
+  (const-stx #t #f))

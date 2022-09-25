@@ -5,9 +5,6 @@ let
 in import nixpkgs {
   config.packageOverrides = pkgs: 
     pkgs.lib.composeManyExtensions [  
-      (import extensions/buffers.nix {
-        inherit ghc;
-      })
       (import extensions/opal.nix {
         inherit ghc;
       })
@@ -24,6 +21,9 @@ in import nixpkgs {
         inherit ghc;
       })
       (import extensions/prim-int.nix {
+        inherit ghc;
+      })
+      (import extensions/prim-ord.nix {
         inherit ghc;
       })
       (import extensions/source-locations.nix {

@@ -47,7 +47,6 @@ common common
 
   build-depends:
     , base >= 4.15.1 && < 4.17
-    , buffers
     , mtl
     , prettyprinter
     , source-locations
@@ -87,6 +86,7 @@ library
     Opal.Expand.Eval.Monad
     Opal.Expand.Monad
     Opal.Expand.Parse
+    Opal.Expand.Parse.Monad
     Opal.Expand.Resolve
     Opal.Expand.Resolve.Class
     Opal.Expand.Resolve.Monad
@@ -97,12 +97,16 @@ library
     Opal.Expand.Syntax.ScopeSet
     Opal.Expand.Transformer
     Opal.Expr
-    Opal.Lexer
-    Opal.Lexer.Core
-    Opal.Lexer.Error
-    Opal.Lexer.Monad
     Opal.Print
+    Opal.Reader
+    Opal.Reader.Bool
+    Opal.Reader.Quote
     Opal.Run
+
+    Data.Parse
+    Data.Parse.Context
+    Data.Parse.Error
+    Data.Parse.Monad
 
 test-suite test
   import:         common
@@ -127,6 +131,7 @@ test-suite test
     Test.Expand
     Test.Expand.Lexer
     Test.Expand.Lexer.Core
+    Test.Parse
 
 executable opal-repl
   import:         common

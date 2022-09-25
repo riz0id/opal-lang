@@ -6,8 +6,8 @@ mkDerivation {
   version = "1.0.0";
   src = fetchgit {
     url = "https://github.com/riz0id/prim-int";
-    sha256 = "0l3x86sxmnsgkpk4nyf3ph2yfk64nl40h4dixhn8ibcaxlslj3vb";
-    rev = "65227f5a7bc0f0a183eecf5aaf08d76b708c3f64";
+    sha256 = "0csbscqiz9yfsf76mhgq9fi24igcb2ps0dy78rvhyal9n20gqag0";
+    rev = "b752f3fbb35f8a51dab7a3c0d75f9fb7a2b9710b";
     fetchSubmodules = true;
   };
   libraryHaskellDepends = [

@@ -5,6 +5,7 @@
 
 module Opal.Expand.Resolve.Monad
   ( -- * TODO
+    runResolveM,
     ResolveM (R, unR),
   )
 where
@@ -40,15 +41,16 @@ import qualified Opal.Expand.Syntax.MultiScopeSet as MultiScopeSet
 -- | TODO
 --
 -- @since 1.0.0
+runResolveM :: BindTable -> ScopeId -> ResolveM a -> (BindTable, a) 
+runResolveM binds (ScopeId (I# sc#)) (R k) = 
+  case k binds 0# sc# of  (# binds', _, _, x #) -> (binds', x)
+{-# INLINE runResolveM #-}
+
+-- | TODO
+--
+-- @since 1.0.0
 newtype ResolveM (a :: Type) :: Type where
-  R ::
-    { unR ::
-        BindTable ->
-        Int# ->
-        Int# ->
-        (# BindTable, Int#, Int#, a #)
-    } ->
-    ResolveM a
+  R :: {unR :: BindTable -> Int# -> Int# -> (# BindTable, Int#, Int#, a #)} -> ResolveM a
 
 -- | @since 1.0.0
 instance Functor ResolveM where

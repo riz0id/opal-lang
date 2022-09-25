@@ -26,6 +26,7 @@ where
 import Control.Monad.Except (throwError)
 import Control.Monad.Reader (asks, local)
 
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 
 --------------------------------------------------------------------------------
@@ -43,14 +44,13 @@ import Opal.Expand.Eval.Monad
   )
 
 import Opal.Expand.Syntax qualified as Syntax
+import Opal.Expand.Transformer
 import Opal.Expr
-  ( Datum (AtomDtm, FunDtm, ListDtm, StxDtm),
+  ( Datum (FunDtm, StxDtm),
     Expr (AppExp, DtmExp, VarExp),
     stx'exp,
     stx'new,
   )
-import Opal.Expand.Transformer
-import Opal.Expand.Resolve (MonadResolve(resolve))
 
 --------------------------------------------------------------------------------
 
@@ -72,9 +72,7 @@ runEval ctx st0 eval =
 evalExpr :: Expr -> Eval Datum
 evalExpr (DtmExp val) = pure val
 evalExpr (VarExp var) = evalVar var
-evalExpr (AppExp exs)
-  | null exs = pure (ListDtm [])
-  | otherwise = evalAppExpr (head exs) (tail exs)
+evalExpr (AppExp (fun :| args)) = evalAppExpr fun args
 {-# INLINE evalExpr #-}
 
 -- | TODO
@@ -111,15 +109,15 @@ evalAppExpr (AppExp exs) args = do
 --
 -- @since 1.0.0
 evalAppDatum :: Datum -> [Expr] -> Eval Datum
-evalAppDatum (FunDtm var body) args
-  | null args = pure (FunDtm var body)
-  | otherwise = do
-      val <- evalExpr (head args)
-      local (valueBind var val) do
-        body' <- evalExpr body
-        if null (tail args)
-          then pure body'
-          else evalAppDatum body' (tail args)
+evalAppDatum (FunDtm vars body) [] = 
+  pure (FunDtm vars body)
+evalAppDatum (FunDtm (var : vars) body) (arg : args) = do
+  val <- evalExpr arg
+  local (valueBind var val) do
+    body' <- evalExpr body
+    if null vars
+      then pure body'
+      else evalAppDatum body' args
 evalAppDatum val args = do
   throwError (ExnAppToDatum val args)
 {-# INLINE evalAppDatum #-}
@@ -135,21 +133,21 @@ evalAppStxExp args = error ("invalid arguments to 'syntax-e': " ++ show args)
 --
 -- @since 1.0.0
 evalAppMkStx :: [Expr] -> Eval Datum
-evalAppMkStx [DtmExp (AtomDtm atom), DtmExp (StxDtm stx)] = pure (StxDtm (stx'new atom.symbol stx))
+evalAppMkStx [DtmExp (StxDtm (Syntax.Idt idt)), DtmExp (StxDtm stx)] = pure (StxDtm (stx'new idt.symbol stx))
 evalAppMkStx args = error ("invalid arguments to 'syntax-e': " ++ show args)
 
 -- | TODO
 --
 -- @since 1.0.0
 evalAppStxLocalValue :: [Expr] -> Eval Datum
-evalAppStxLocalValue [DtmExp (StxDtm (Syntax.Idt idt))] = do 
+evalAppStxLocalValue [DtmExp (StxDtm (Syntax.Idt idt))] = do
   asks (indexLocalSyntax idt.symbol) >>= \case
     Nothing -> error ("syntax-local-value('" ++ show idt ++ "'): is unbound")
-    Just tfm -> evalTransform idt.symbol tfm 
+    Just tfm -> evalTransform idt.symbol tfm
 evalAppStxLocalValue args =
   error ("invalid arguments to 'syntax-local-value': " ++ show args)
 
-evalTransform :: Symbol -> Transform -> Eval Datum 
+evalTransform :: Symbol -> Transform -> Eval Datum
 evalTransform idt = \case
   LamTfm -> error ("syntax-local-value('" ++ show idt ++ "'): is a 'lambda' transformer")
   StxTfm -> error ("syntax-local-value('" ++ show idt ++ "'): is a 'syntax' transformer")

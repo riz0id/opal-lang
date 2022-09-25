@@ -5,7 +5,9 @@ module Opal.Expand.Monad
     ExpError (..),
 
     -- * TODO
-    ExpM (ExpM, unExpM),
+    evalExpand,
+    runExpand,
+    Expand (Expand, unExpand),
   )
 where
 
@@ -18,22 +20,22 @@ import Control.Monad.State.Strict (MonadState, get, put, state)
 import Data.Data (Data)
 import Data.Kind (Type)
 
-
 import Prelude hiding (exp)
 
 --------------------------------------------------------------------------------
 
 import Opal.Common.GenSym (MonadGenSym, newGenSym, newGenSymWith)
 
-import Opal.Expand.Context (Context)
-import Opal.Expand.Resolve
+import Opal.Expand.Context (Context, ctxCoreScope)
+import Opal.Expand.Context qualified as Context
+import Opal.Expand.Resolve.Class
   ( MonadResolve,
-    ResolveM,
     newBind,
     newScopeId,
     resolve,
     resolveBind,
   )
+import Opal.Expand.Resolve.Monad (ResolveM, runResolveM)
 import Opal.Expand.Syntax (Syntax)
 import Opal.Expand.Syntax.BindTable (BindTable)
 
@@ -50,80 +52,92 @@ newtype ExpError
 -- | TODO
 --
 -- @since 1.0.0
-newtype ExpM (a :: Type) :: Type where
-  ExpM :: {unExpM :: Context -> ResolveM (Either ExpError a)} -> ExpM a
+evalExpand :: Expand a -> Either ExpError a
+evalExpand ex = snd (runExpand Context.newExpanderContext ex)
+
+-- | TODO
+--
+-- @since 1.0.0
+runExpand :: Context -> Expand a -> (BindTable, Either ExpError a)
+runExpand ctx (Expand k) = runResolveM mempty (succ $ ctxCoreScope ctx) (k ctx)
+
+-- | TODO
+--
+-- @since 1.0.0
+newtype Expand (a :: Type) :: Type where
+  Expand :: {unExpand :: Context -> ResolveM (Either ExpError a)} -> Expand a
 
 -- | @since 1.0.0
-instance Functor ExpM where
-  fmap f (ExpM k) = ExpM (fmap (fmap f) . k)
+instance Functor Expand where
+  fmap f (Expand k) = Expand (fmap (fmap f) . k)
   {-# INLINE fmap #-}
 
 -- | @since 1.0.0
-instance Applicative ExpM where
-  pure x = ExpM \_ -> pure (Right x)
+instance Applicative Expand where
+  pure x = Expand \_ -> pure (Right x)
   {-# INLINE pure #-}
 
-  ExpM f <*> ExpM g = ExpM \ctx -> liftA2 (<*>) (f ctx) (g ctx)
+  Expand f <*> Expand g = Expand \ctx -> liftA2 (<*>) (f ctx) (g ctx)
   {-# INLINE (<*>) #-}
 
 -- | @since 1.0.0
-instance Monad ExpM where
-  ExpM k >>= f =
-    ExpM \ctx ->
-      k ctx >>= \case 
+instance Monad Expand where
+  Expand k >>= f =
+    Expand \ctx ->
+      k ctx >>= \case
         Left exn -> pure (Left exn)
-        Right rx -> unExpM (f rx) ctx 
+        Right rx -> unExpand (f rx) ctx
   {-# INLINE (>>=) #-}
 
 -- | @since 1.0.0
-instance MonadError ExpError ExpM where
-  throwError e = ExpM \_ -> pure (Left e)
+instance MonadError ExpError Expand where
+  throwError e = Expand \_ -> pure (Left e)
   {-# INLINE throwError #-}
 
-  catchError (ExpM k) f =
-    ExpM \ctx ->
+  catchError (Expand k) f =
+    Expand \ctx ->
       k ctx >>= \case
-        Left exn -> unExpM (f exn) ctx
+        Left exn -> unExpand (f exn) ctx
         Right x -> pure (Right x)
   {-# INLINE catchError #-}
 
 -- | @since 1.0.0
-instance MonadReader Context ExpM where
-  ask = ExpM (pure . Right)
+instance MonadReader Context Expand where
+  ask = Expand (pure . Right)
   {-# INLINE ask #-}
 
-  local f (ExpM k) = ExpM (k . f)
+  local f (Expand k) = Expand (k . f)
   {-# INLINE local #-}
 
 -- | @since 1.0.0
-instance MonadState BindTable ExpM where
-  get = ExpM \_ -> fmap Right get
+instance MonadState BindTable Expand where
+  get = Expand \_ -> fmap Right get
   {-# INLINE get #-}
 
-  put st = ExpM \_ -> fmap Right (put st)
+  put st = Expand \_ -> fmap Right (put st)
   {-# INLINE put #-}
 
-  state f = ExpM \_ -> fmap Right (state f)
+  state f = Expand \_ -> fmap Right (state f)
   {-# INLINE state #-}
 
 -- | @since 1.0.0
-instance MonadGenSym ExpM where
-  newGenSym = ExpM \_ -> fmap Right newGenSym
+instance MonadGenSym Expand where
+  newGenSym = Expand \_ -> fmap Right newGenSym
   {-# INLINE newGenSym #-}
 
-  newGenSymWith idt = ExpM \_ -> fmap Right (newGenSymWith idt)
+  newGenSymWith idt = Expand \_ -> fmap Right (newGenSymWith idt)
   {-# INLINE newGenSymWith #-}
 
 -- | @since 1.0.0
-instance MonadResolve ExpM where
-  newScopeId = ExpM \_ -> fmap Right newScopeId
+instance MonadResolve Expand where
+  newScopeId = Expand \_ -> fmap Right newScopeId
   {-# INLINE newScopeId #-}
 
-  newBind phase idt = ExpM \_ -> fmap Right (newBind phase idt)
+  newBind phase idt = Expand \_ -> fmap Right (newBind phase idt)
   {-# INLINE newBind #-}
 
-  resolveBind phase idt = ExpM \_ -> fmap Right (resolveBind phase idt)
+  resolveBind phase idt = Expand \_ -> fmap Right (resolveBind phase idt)
   {-# INLINE resolveBind #-}
 
-  resolve phase idt = ExpM \_ -> fmap Right (resolve phase idt)
+  resolve phase idt = Expand \_ -> fmap Right (resolve phase idt)
   {-# INLINE resolve #-}

@@ -1,23 +1,89 @@
 - arguments: [
   --color, 
-  --cpp-simple,
   -XMagicHash,
-  -XTemplateHaskellQuotes,
   -XUnboxedTuples,
   -XUnliftedNewtypes,
+  -XViewPatterns,
 ]
-- ignore: { name: "Use const" }
-- ignore: { name: "Use first" }
-- ignore: { name: "Use tuple-section" }
+
+- extensions:
+  - default: true
+  - name: [
+      ImportQualifiedPost, 
+      MagicHash,
+      PatternSynonyms, 
+      TemplateHaskellQuotes,
+      UnliftedNewtypes
+      UnboxedTuples,
+      ViewPatterns,
+    ]
+
+# ==============================================================================
+# hints for the "ghc-prim" package
+
+- package: 
+    name: ghc-prim
+    modules:
+    - import GHC.CString
+    - import GHC.Classes
+    - import GHC.Debug
+    - import GHC.Magic
+    - import GHC.Magic.Dict
+    - import GHC.Prim.Exception
+    - import GHC.Prim.Ext
+    - import GHC.Prim.Panic
+    - import GHC.Prim.PtrEq
+    - import GHC.PrimWrappers
+    - import GHC.Tuple
+    - import GHC.Type
+
+
+# ==============================================================================
+# hints for the "source-locations" package
+
+- package: 
+    name: source-locations
+    modules: 
+    - import Data.SrcLoc
+    - import Data.SrcLoc.Prim
+
+- group:
+    name: source-location hints
+    enabled: true
+
+    imports:
+    - package source-locations
+
+    rules: 
+    - warn: {
+      name: "Use Data.SrcLoc.diff",
+      lhs: posn y - posn x,
+      rhs: diff x y,
+    }
+    - warn: {
+      name: "Use Data.SrcLoc.Prim.diff#",
+      lhs: posn# y - posn# x,
+      rhs: diff# x y,
+    }
+    - warn: {
+      name: "Use Data.SrcLoc.empty",
+      lhs: SrcLoc 0 1 1,
+      rhs: empty,
+    }
+
+# ==============================================================================
+# hlint configuration
+
 - modules:
-  - {name: GHC.Exts, as: GHC} 
-  - {
-    name: GHC.Magic, 
-    message: "Import GHC.Exts qualified as Exts instead",
-    within: []
-  } 
-  - {
-    name: GHC.Prim, 
-    message: "Import GHC.Exts qualified as Exts instead",
-    within: []
-  } 
+  - {name: GHC.Classes, as: GHC, message: "Error: qualify GHC.Exts as GHC"} 
+  - {name: GHC.Exts,    as: GHC, message: "Error: qualify GHC.Exts as GHC"} 
+
+  - {name: GHC.Magic, within: [], message: "Error: use GHC.Exts"} 
+  - {name: GHC.Prim,  within: [], message: "Error: use GHC.Exts"} 
+
+- functions: 
+  - {name: tail, within: [], message: "tail can fail with an unchecked exception"}
+  - {name: unsafeCoerce#, within: [], message: "unsafeCoerce# is highly unsafe"}
+
+- ignore: {name: Use const}
+- ignore: {name: Use tuple-section}

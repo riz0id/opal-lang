@@ -4,21 +4,43 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Test.Expand.Lexer.Core
+module Test.Parse.Gen
   ( -- * TODO
-    -- testLexerCase,
+    except,
+    string,
+    string'unicode,
+    Gen.unicode,
 
     -- * Re-exports
     module Test.Core,
   )
 where
 
-import Hedgehog ((===))
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
+import Hedgehog (Gen, Range)
 
 -- import Opal.Lexer (Error, Lexer, runStringLexer)
 import Test.Core
 
 --------------------------------------------------------------------------------
+
+except :: Eq a => a -> Gen a -> Gen a
+except x gen = do 
+  x' <- gen
+  if x == x'
+    then Gen.discard
+    else pure x'
+
+string :: Gen Char -> Gen String 
+string gen = 
+  Gen.sized \size -> 
+    let range :: Range Int
+        range = Range.constant 0 (fromIntegral size)
+     in Gen.string range gen
+
+string'unicode :: Gen String 
+string'unicode = string Gen.unicode
 
 -- | Like 'testProp', but only performs a single test run on the 'Property'.
 -- testLexerCase ::

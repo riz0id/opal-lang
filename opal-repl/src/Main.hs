@@ -30,7 +30,7 @@ import Text.Printf qualified as Text
 
 import Control.Monad.Cont (ContM, callCC, runContM, shiftM)
 
-import Opal.Expand (evalExpM, runStxExpand, expEvaluate)
+import Opal.Expand (evalExpand, runStxExpand, expEvaluate)
 import Opal.Expr (Datum, Expr)
 import Opal.Lexer qualified as Lexer
 import Opal.Print qualified as Print
@@ -82,12 +82,12 @@ dispatchCLI (CLI.CmdCLI cmd) = cmdCLI cmd
 
 evalCLI :: Syntax -> IO ()
 evalCLI stx = do
-  case Expand.evalExpM (Expand.runStxExpand stx) of
+  case Expand.evalExpand (Expand.runStxExpand stx) of
     Left err -> do
       putStrLn "Parse error:"
       print err
     Right exp -> do
-      case evalExpM (expEvaluate exp) of
+      case evalExpand (expEvaluate exp) of
         Left err -> do
           putStrLn "Evaluation error:"
           print err
@@ -117,7 +117,7 @@ runEvaluatorCLI :: ContM () IO Datum
 runEvaluatorCLI = do
   stx <- runLexerCLI 
   shiftM \next -> 
-    liftIO case evalExpM (expEvaluate =<< runStxExpand stx) of
+    liftIO case evalExpand (expEvaluate =<< runStxExpand stx) of
       Left exn -> putStrLn ("expander error: " ++ show exn)
       Right (_, rx) -> next rx
 
@@ -125,7 +125,7 @@ runExpanderCLI :: ContM () IO Expr
 runExpanderCLI = do 
   stx <- runLexerCLI 
   shiftM \next -> 
-    liftIO case evalExpM (runStxExpand stx) of
+    liftIO case evalExpand (runStxExpand stx) of
       Left exn -> putStrLn ("expander error: " ++ show exn)
       Right rx -> next rx
 

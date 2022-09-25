@@ -10,6 +10,7 @@ import Test.Tasty (defaultMain)
 --------------------------------------------------------------------------------
 
 import Test.Expand qualified
+import Test.Parse qualified
 
 --------------------------------------------------------------------------------
 
@@ -21,4 +22,5 @@ testTree =
   testGroup 
     "Test"
     [ Test.Expand.testTree
+    , Test.Parse.testTree
     ]

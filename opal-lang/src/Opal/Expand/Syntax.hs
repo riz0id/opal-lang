@@ -22,7 +22,7 @@ module Opal.Expand.Syntax
 where
 
 import Data.Data (Data, gmapT)
-import Data.SrcLoc (SrcLoc)
+import Data.SrcLoc (SrcLoc, line, coln)
 
 import GHC.Records (HasField, getField)
 
@@ -92,23 +92,24 @@ prune ph set =
 -- @since 1.0.0
 data StxCtx = StxCtx
   { stxctx'srcloc :: {-# UNPACK #-} !SrcLoc
+  , stxctx'srclen :: {-# UNPACK #-} !Int
   , stxctx'multiscopes :: MultiScopeSet
   }
   deriving (Data, Eq, Ord, Show)
 
 -- | @since 1.0.0
 instance HasField "multiscope" StxCtx MultiScopeSet where
-  getField (StxCtx _ multiscope) = multiscope
+  getField (StxCtx _ _ multiscope) = multiscope
   {-# INLINE getField #-}
 
 -- | @since 1.0.0
 instance HasField "location" StxCtx SrcLoc where
-  getField (StxCtx loc _) = loc
+  getField (StxCtx loc _ _) = loc
   {-# INLINE getField #-}
 
 -- | @since 1.0.0
 instance Pretty StxCtx where
-  pretty (StxCtx loc _) = viaShow loc.line <> Print.colon <> viaShow loc.coln
+  pretty (StxCtx loc _ _) = viaShow loc.line <> Print.colon <> viaShow loc.coln
   {-# INLINE pretty #-}
 
   prettyList xs = Print.group $ Print.parens (Print.sep $ map pretty xs)
@@ -123,11 +124,7 @@ data StxIdt = StxIdt
   { stxidt'stxctx :: {-# UNPACK #-} !StxCtx
   , stxidt'symbol :: {-# UNPACK #-} !Symbol
   }
-  deriving (Data, Eq, Ord)
-
--- | @since 1.0.0
-instance Show StxIdt where
-  show (StxIdt _ symbol) = "#'" ++ show symbol
+  deriving (Data, Eq, Ord, Show)
 
 -- | @since 1.0.0
 instance HasField "context" StxIdt StxCtx where
@@ -174,7 +171,7 @@ data Syntax
   = Lit {-# UNPACK #-} !StxCtx Literal
   | Idt {-# UNPACK #-} !StxIdt
   | App {-# UNPACK #-} !StxCtx [Syntax]
-  deriving (Data, Eq, Ord)
+  deriving (Data, Eq, Ord, Show)
 
 -- | @since 1.0.0
 instance HasField "context" Syntax StxCtx where
@@ -196,20 +193,6 @@ instance HasField "location" Syntax SrcLoc where
   getField (Idt idt) = idt.location
   getField (App ctx _) = ctx.location
   {-# INLINE getField #-}
-
--- | @since 1.0.0
-instance Show Syntax where
-  show (Lit _ lit) = show lit
-  show (Idt idt) = show idt
-  show (App ctx xs) =
-    "#<syntax:"
-      ++ showsLoc ctx.location ": ("
-      ++ unwords (map show xs)
-      ++ ")>"
-    where
-      showsLoc :: SrcLoc -> ShowS
-      showsLoc loc = shows loc.line . showString ":" . shows loc.coln
-  {-# INLINE show #-}
 
 -- | @since 1.0.0
 instance Pretty Syntax where

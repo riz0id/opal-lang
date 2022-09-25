@@ -6,11 +6,12 @@
 
 module Opal.Expand
   ( -- * TODO
-    ExpM (ExpM, unExpM),
-    evalExpM,
+    evalExpand,
+    runExpand,
+    Expand (Expand, unExpand),
 
     -- * TODO
-    runStxExpand,
+    expandSyntax,
 
     -- * TODO
     expStx,
@@ -24,96 +25,103 @@ import Control.Monad.Except (throwError)
 import Control.Monad.Reader (asks, local)
 
 import Data.List qualified as List
+import Data.List.NonEmpty (NonEmpty ((:|)))
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
-import Data.SrcLoc (SrcLoc (SrcLoc))
 
 import Prelude hiding (exp)
 
 --------------------------------------------------------------------------------
 
 import Opal.Common.Symbol (Symbol)
-import Opal.Common.Symbol qualified as Symbol
 
-import Opal.Expr (Datum (LitDtm), Expr)
+import Opal.Expr (Datum, Expr)
 
-import Opal.Expand.Context (Context (Context), ctxBindings, ctxIntroScopes, ctxPhase, ctxUseScopes, ctxEnvironment)
+import Data.Traversable (for)
+import Opal.Expand.Context
+  ( ctxEnvironment,
+    ctxIntroScopes,
+    ctxPhase,
+    ctxUseScopes,
+  )
 import Opal.Expand.Context qualified as Context
-import Opal.Expand.Eval (EvalCtx (..), EvalState (EvalState), evalAppStxLocalValue, Eval, evalAppStxExp)
+import Opal.Expand.Eval
+  ( Eval,
+    EvalCtx (..),
+    EvalState (EvalState),
+    evalAppStxExp,
+    evalAppStxLocalValue,
+  )
 import Opal.Expand.Eval qualified as Eval
-import Opal.Expand.Monad (ExpError (..), ExpM (..))
-import Opal.Expand.Resolve (evalResolveM, newBind, newScopeId, resolve)
-import Opal.Expand.Syntax (ScopeId, StxCtx (StxCtx), StxIdt (StxIdt), Syntax)
+import Opal.Expand.Monad
+  ( ExpError (..),
+    Expand (Expand, unExpand),
+    evalExpand,
+    runExpand,
+  )
+import Opal.Expand.Parse (arity1, pLambda, pSyntax, runParseM)
+import Opal.Expand.Resolve.Class (newBind, newScopeId, resolve)
+import Opal.Expand.Resolve.Monad (ResolveM (R))
+import Opal.Expand.Syntax (ScopeId, StxCtx, StxIdt (StxIdt), Syntax)
 import Opal.Expand.Syntax qualified as Syntax
-import Opal.Expand.Syntax.MultiScopeSet (Phase (Phase))
-import Opal.Expand.Syntax.MultiScopeSet qualified as MultiScopeSet
 import Opal.Expand.Transformer (Transform (..))
 import Opal.Expr qualified as Expr
-import Opal.AST.Literal (Literal(BoolLit))
 
 --------------------------------------------------------------------------------
 
 -- | TODO
 --
 -- @since 1.0.0
-evalExpM :: ExpM a -> Either ExpError a
-evalExpM (ExpM k) =
-  let context :: Context
-      context = Context (Phase 0) mempty mempty mempty mempty
-   in evalResolveM (k context)
-
---------------------------------------------------------------------------------
+expandExpr :: Expr -> Expand Expr
+expandExpr (Expr.VarExp var) = pure (Expr.VarExp var)
+expandExpr (Expr.DtmExp val) = expandDatum val
+expandExpr (Expr.AppExp exs) = fmap Expr.AppExp (traverse expandExpr exs)
 
 -- | TODO
 --
 -- @since 1.0.0
-runStxExpand :: Syntax -> ExpM Expr
-runStxExpand stx = do
-  phase <- asks Context.ctxPhase
-  coreScope <- newScopeId
-  introCoreBind "lambda" coreScope LamTfm do
-    introCoreBind "syntax" coreScope StxTfm do
-      introCoreBind "quote" coreScope QteTfm do
-        introCoreBind "let-syntax" coreScope LetTfm do
-          introCoreBind "#t" coreScope (DtmTfm $ LitDtm $ BoolLit True) do
-            introCoreBind "syntax-e" coreScope (VarTfm "syntax-e") do
-              introCoreBind "syntax-local-value" coreScope (VarTfm "syntax-local-value") do
-                expStx (Syntax.scope phase coreScope stx)
+expandDatum :: Datum -> Expand Expr
+expandDatum (Expr.LitDtm val) =
+  pure (Expr.DtmExp $ Expr.LitDtm val)
+expandDatum (Expr.StxDtm stx) = do
+  expandSyntax stx
+expandDatum (Expr.FunDtm var body) = do
+  body' <- expandExpr body
+  pure (Expr.DtmExp $ Expr.FunDtm var body')
+expandDatum (Expr.ListDtm vals) = do
+  undefined
 
-introCoreBind :: String -> ScopeId -> Transform -> ExpM a -> ExpM a
-introCoreBind name scopes tfm emx = do
-  let sym = Symbol.pack name
-  let ctx = StxCtx (SrcLoc 0 0 0) (MultiScopeSet.singleton (Phase 0) scopes)
-  binding <- newBind (Phase 0) (StxIdt ctx sym)
-  local (Context.newTransformer binding.symbol tfm) emx
+-- vals' <- traverse expandDatum vals
+-- pure (Expr.AppExp vals')
+
+-- | TODO
+--
+-- @since 1.0.0
+expandSyntax :: Syntax -> Expand Expr
+expandSyntax stx = runParseM stx pSyntax >>= expandExpr
 
 --------------------------------------------------------------------------------
 
-withVariableBinding :: StxIdt -> ExpM a -> ExpM a
-withVariableBinding idt ex = do
-  phase <- asks Context.ctxPhase
-  binding <- newBind phase idt
-  local (Context.newTransformer binding.symbol $ VarTfm idt.symbol) ex
-
-withDatumBinding :: StxIdt -> Datum -> ExpM a -> ExpM a
+withDatumBinding :: StxIdt -> Datum -> Expand a -> Expand a
 withDatumBinding idt val ex = do
   phase <- asks Context.ctxPhase
   binding <- newBind phase idt
   local (Context.newTransformer idt.symbol $ DtmTfm val) do
     local (Context.newTransformer binding.symbol $ DtmTfm val) ex
 
-resolveSyntax :: StxIdt -> ExpM Symbol
+resolveSyntax :: StxIdt -> Expand Symbol
 resolveSyntax idt = do
   phase <- asks Context.ctxPhase
   resolve phase idt >>= \case
     Nothing -> error ("ambiguous bindings to identifier: " ++ show idt)
     Just symbol -> pure symbol
 
-resolveTransform :: StxIdt -> ExpM Transform
+resolveTransform :: StxIdt -> Expand Transform
 resolveTransform idt = do
-  symbol <- resolveSyntax idt
+  -- symbol <- resolveSyntax idt
   expEnv <- asks Context.ctxEnvironment
-  case Map.lookup symbol expEnv of
-    Nothing -> error ("generated symbol '" ++ show idt ++ "' not bound to any transformer (impossible?)")
+  case Map.lookup idt.symbol expEnv of
+    Nothing -> error ("unbound identifier: " ++ show idt)
     Just transformer -> pure transformer
 
 --------------------------------------------------------------------------------
@@ -121,7 +129,7 @@ resolveTransform idt = do
 -- | TODO
 --
 -- @since 1.0.0
-expStx :: Syntax -> ExpM Expr
+expStx :: Syntax -> Expand Expr
 expStx (Syntax.Lit _ lit) = do
   pure (Expr.DtmExp $ Expr.LitDtm lit)
 expStx (Syntax.Idt idt) = do
@@ -131,7 +139,7 @@ expStx (Syntax.Idt idt) = do
     LamTfm -> error ("transformer 'syntax' used as variable reference: " ++ show idt)
     LetTfm -> error ("transformer 'syntax' used as variable reference: " ++ show idt)
     StopTfm tfm -> undefined
-    VarTfm var -> do 
+    VarTfm var -> do
       pure (Expr.VarExp var)
     DtmTfm val -> case val of
       Expr.StxDtm {} -> pure (Expr.DtmExp val)
@@ -143,45 +151,37 @@ expStx (Syntax.App ctxApp stxs)
 -- | TODO
 --
 -- @since 1.0.0
-expApp :: [Syntax] -> StxCtx -> ExpM Expr
-expApp stxs ctxApp = case stxs of
-  [] -> error ("empty syntax application @ " ++ show ctxApp)
-  Syntax.Lit {} : _ -> do
-    throwError (LitStxAppError stxs)
-  Syntax.Idt idt : stxArgs -> do
-    expAppIdt idt stxArgs ctxApp
-  Syntax.App {} : _ -> do
-    exprs <- traverse expStx stxs
-    pure (Expr.AppExp exprs)
+expApp :: [Syntax] -> StxCtx -> Expand Expr
+expApp stxs ctxApp =
+  case NonEmpty.nonEmpty stxs of
+    Nothing ->
+      error ("empty syntax application @ " ++ show ctxApp)
+    Just (Syntax.Lit {} :| _) -> do
+      throwError (LitStxAppError stxs)
+    Just (Syntax.Idt idt :| stxs') -> do
+      expAppIdt idt stxs' ctxApp
+    Just (stx@Syntax.App {} :| stxs') -> do
+      exprs <- traverse expStx (stx :| stxs')
+      pure (Expr.AppExp exprs)
 
 makeStxExp :: Syntax -> Expr
 makeStxExp = Expr.DtmExp . Expr.StxDtm
 
-makeFunExp :: Symbol -> Expr -> Expr
-makeFunExp var body = Expr.DtmExp (Expr.FunDtm var body)
+makeFunExp :: [Symbol] -> Expr -> Expr
+makeFunExp vars body = Expr.DtmExp (Expr.FunDtm vars body)
 
-expAppIdt :: StxIdt -> [Syntax] -> StxCtx -> ExpM Expr
+expAppIdt :: StxIdt -> [Syntax] -> StxCtx -> Expand Expr
 expAppIdt idtFun stxArgs ctxApp =
   resolveTransform idtFun >>= \case
     QteTfm -> do
-      if length stxArgs == 1
-        then pure (makeStxExp $ head stxArgs)
-        else error ("application to 'quote': expected 1 argument, got " ++ shows (length stxArgs) ": " ++ show stxArgs)
-    StxTfm ->
-      if length stxArgs == 1
-        then pure (makeStxExp $ head stxArgs)
-        else error ("application to 'syntax': expected 1 argument, got " ++ shows (length stxArgs) ": " ++ show stxArgs)
+      stx <- runParseM (Syntax.App ctxApp stxArgs) arity1
+      pure (Expr.DtmExp $ Expr.stx'datum stx)
+    StxTfm -> do
+      stx <- runParseM (Syntax.App ctxApp stxArgs) arity1
+      pure (makeStxExp stx)
     LamTfm -> do
-      unless (length stxArgs == 2) do
-        error ("application to 'lambda': expected 2 argument, got " ++ shows (length stxArgs) ": " ++ show stxArgs)
-
-      idtVar <- case head stxArgs of
-        Syntax.Idt idt -> pure idt
-        stx -> error ("application to 'lambda': argument 1: expected identifier, got '" ++ shows stx "'")
-
-      let stxBody = stxArgs List.!! 1
-
-      expStxLam idtVar stxBody
+      (vars, body) <- runParseM (Syntax.App ctxApp stxArgs) pLambda
+      expStxLam vars body
     LetTfm -> do
       unless (length stxArgs == 2) do
         error ("application to 'let-syntax': expected 2 argument, got " ++ shows (length stxArgs) ": " ++ show stxArgs)
@@ -194,32 +194,46 @@ expAppIdt idtFun stxArgs ctxApp =
 
       expStxLet idtVar stxVal stxBody
     StopTfm tfm -> undefined
-    VarTfm var 
+    VarTfm var
       | var == "syntax-e" -> do
-        valArgs <- traverse expStx stxArgs
-        (_, val) <- runExpEval (evalAppStxExp valArgs)
-        pure (Expr.DtmExp val)
+          valArgs <- traverse expStx stxArgs
+          (_, val) <- runExpEval (evalAppStxExp valArgs)
+          pure (Expr.DtmExp val)
       | var == "syntax-local-value" -> do
-        valArgs <- traverse expStx stxArgs
-        (_, val) <- runExpEval (evalAppStxLocalValue valArgs)
-        pure (Expr.DtmExp val)
+          valArgs <- traverse expStx stxArgs
+          (_, val) <- runExpEval (evalAppStxLocalValue valArgs)
+          pure (Expr.DtmExp val)
       | otherwise -> do
-        binding <- resolveSyntax (StxIdt idtFun.context var)
-        expAppIdt (StxIdt idtFun.context binding) stxArgs ctxApp 
+          binding <- resolveSyntax (StxIdt idtFun.context var)
+          expAppIdt (StxIdt idtFun.context binding) stxArgs ctxApp
     DtmTfm val -> do
       let stxMacApp :: Syntax
           stxMacApp = Syntax.App ctxApp (idtFun.syntax : stxArgs)
        in expMacApp val stxMacApp
 
-expStxLam :: StxIdt -> Syntax -> ExpM Expr
-expStxLam idtVar stxBody = do
-  phase <- asks Context.ctxPhase
-  scope <- newScopeId
-  withVariableBinding (Syntax.scope phase scope idtVar) do
-    expBody <- expStx (Syntax.scope phase scope stxBody)
-    pure (makeFunExp idtVar.symbol expBody)
+expStxLam :: [StxIdt] -> Syntax -> Expand Expr
+expStxLam vars stxBody = do
+  foldr withLambdaVar expandLambdaBody vars []
+  where
+    expandLambdaBody :: [ScopeId] -> Expand Expr
+    expandLambdaBody scopes = do
+      phase <- asks Context.ctxPhase
+      body' <- expStx (foldr ((.) . Syntax.scope phase) id scopes stxBody)
+      pure (makeFunExp (map (\var -> var.symbol) vars) body')
 
-expStxLet :: StxIdt -> Syntax -> Syntax -> ExpM Expr
+    withLambdaVar ::
+      StxIdt ->
+      ([ScopeId] -> Expand a) ->
+      ([ScopeId] -> Expand a)
+    withLambdaVar var ex scopes = do
+      phase <- asks Context.ctxPhase
+      scope <- newScopeId
+      binding <- newBind phase var
+      local (Context.newTransformer var.symbol $ VarTfm binding.symbol) do
+        local (Context.newTransformer binding.symbol $ VarTfm var.symbol) do
+          ex (scope : scopes)
+
+expStxLet :: StxIdt -> Syntax -> Syntax -> Expand Expr
 expStxLet idtVar stxVal stxBody = do
   expVal <- expStx stxVal
   (st, val) <- expEvaluate expVal
@@ -230,19 +244,19 @@ expStxLet idtVar stxVal stxBody = do
    in withDatumBinding idtVar' val do
         expStx (Syntax.scope phase scope stxBody)
 
-expMacApp :: Datum -> Syntax -> ExpM Expr
+expMacApp :: Datum -> Syntax -> Expand Expr
 expMacApp stxMac stxMacApp = do
   phase <- asks Context.ctxPhase
   scUse <- newScopeId
   scIntro <- newScopeId
 
   let stxMacApp' = Syntax.flipscope phase scIntro (Syntax.scope phase scUse stxMacApp)
-  let exprMacApp = Expr.AppExp [Expr.DtmExp stxMac, makeStxExp stxMacApp']
+  let exprMacApp = Expr.AppExp (Expr.DtmExp stxMac :| [makeStxExp stxMacApp'])
   expEvaluate exprMacApp >>= \case
     (st, Expr.StxDtm stx) -> expStx (Syntax.flipscope phase scIntro stx)
     (st, val) -> error ("recieved value from expander that was not syntax: " ++ show val)
 
-runExpEval :: Eval a -> ExpM (EvalState, a)
+runExpEval :: Eval a -> Expand (EvalState, a)
 runExpEval eval = do
   ctxEval <- getExpanderEvalCtx
   envEval <- getExpanderEvalState
@@ -250,20 +264,22 @@ runExpEval eval = do
     (_, Left exn) -> error ("eval error: " ++ show exn)
     (st1, Right rx) -> pure (st1, rx)
 
-expEvaluate :: Expr -> ExpM (EvalState, Datum)
-expEvaluate expr = runExpEval (Eval.evalExpr expr) 
+expEvaluate :: Expr -> Expand (EvalState, Datum)
+expEvaluate expr = runExpEval (Eval.evalExpr expr)
 
-getExpanderEvalCtx :: ExpM EvalCtx
+getExpanderEvalCtx :: Expand EvalCtx
 getExpanderEvalCtx = do
   phase <- asks ctxPhase
   env <- asks ctxEnvironment
   pure (EvalCtx phase Nothing Map.empty env)
 {-# INLINE CONLIKE getExpanderEvalCtx #-}
 
-getExpanderEvalState :: ExpM EvalState
-getExpanderEvalState =
-  EvalState
-    <$> asks ctxBindings
-    <*> asks ctxUseScopes
+getExpanderEvalState :: Expand EvalState
+getExpanderEvalState = do
+  binds <- Expand \_ ->
+    R \binds id# sc# ->
+      (# binds, id#, sc#, Right binds #)
+  EvalState binds
+    <$> asks ctxUseScopes
     <*> asks ctxIntroScopes
 {-# INLINE CONLIKE getExpanderEvalState #-}

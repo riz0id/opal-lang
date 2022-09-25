@@ -1,14 +1,16 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Opal.Expand.Context
   ( -- * Expander Context
     Context
       ( Context,
         ctxPhase,
-        ctxBindings,
+        ctxCoreScope,
         ctxUseScopes,
         ctxIntroScopes,
         ctxEnvironment
@@ -17,7 +19,7 @@ module Opal.Expand.Context
     newTransformer,
 
     -- ** Construction
-    empty,
+    newExpanderContext,
   )
 where
 
@@ -26,14 +28,18 @@ import Data.Map.Strict qualified as Map
 
 --------------------------------------------------------------------------------
 
+import Opal.AST.Literal (Literal (BoolLit))
+
 import Opal.Common.Symbol (Symbol)
 
-import Opal.Expand.Syntax.BindTable (BindTable)
-import Opal.Expand.Syntax.BindTable qualified as BindTable
 import Opal.Expand.Syntax.MultiScopeSet (Phase (Phase))
-import Opal.Expand.Syntax.ScopeSet (ScopeSet)
+import Opal.Expand.Syntax.ScopeSet (ScopeId (ScopeId), ScopeSet)
 import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
-import Opal.Expand.Transformer (Transform)
+import Opal.Expand.Transformer
+  ( Transform (DtmTfm, LamTfm, LetTfm, QteTfm, StxTfm, VarTfm),
+  )
+
+import Opal.Expr (Datum (LitDtm))
 
 -- Expander Context ------------------------------------------------------------
 
@@ -42,7 +48,7 @@ import Opal.Expand.Transformer (Transform)
 -- @since 1.0.0
 data Context = Context
   { ctxPhase :: {-# UNPACK #-} !Phase
-  , ctxBindings :: BindTable
+  , ctxCoreScope :: ScopeId
   , ctxUseScopes :: ScopeSet
   , ctxIntroScopes :: ScopeSet
   , ctxEnvironment :: Map Symbol Transform
@@ -66,12 +72,24 @@ newTransformer symbol transformer ctx =
 -- | TODO
 --
 -- @since 1.0.0
-empty :: Context
-empty =
-  Context
-    (Phase 0)
-    BindTable.empty
-    ScopeSet.empty
-    ScopeSet.empty
-    Map.empty
-{-# INLINE CONLIKE empty #-}
+newExpanderContext :: Context
+newExpanderContext =
+  let coreBinds :: Map Symbol Transform
+      coreBinds =
+        [ ("quote", QteTfm)
+        , ("syntax", StxTfm)
+        , ("lambda", LamTfm)
+        , ("let-syntax", LetTfm)
+        , ("#t", DtmTfm $ LitDtm $ BoolLit True)
+        , ("#f", DtmTfm $ LitDtm $ BoolLit False)
+        , ("syntax-e", VarTfm "syntax-e")
+        , ("make-syntax", VarTfm "make-syntax")
+        , ("syntax-local-value", VarTfm "syntax-local-value")
+        ]
+   in Context
+        (Phase 0)
+        (ScopeId 0)
+        ScopeSet.empty
+        ScopeSet.empty
+        (coreBinds)
+{-# INLINE CONLIKE newExpanderContext #-}

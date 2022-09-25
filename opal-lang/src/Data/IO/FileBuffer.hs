@@ -12,7 +12,6 @@ import Data.Kind (Type)
 import Data.CharArray.Prim (CharArray#)
 import Data.CharArray.Prim qualified as CharArray
 
-
 import GHC.Exts (Char (C#), Int (I#))
 
 import System.IO qualified as IO
