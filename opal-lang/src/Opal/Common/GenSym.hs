@@ -1,9 +1,11 @@
 module Opal.Common.GenSym
   ( -- * TODO
-    GenSym (GenSym),
-    base,
-    uuid,
-    symbol,
+    GenSym (GenSym, base, uuid),
+    makeGenSym,
+    
+    -- * Conversion
+    toName,
+    toSymbol,
 
     -- * TODO
     MonadGenSym,
@@ -18,13 +20,15 @@ where
 
 import Data.Data (Data)
 import Data.Kind (Type)
+import Data.Maybe (fromMaybe)
 
 import GHC.Exts (Int (I#), Int#)
 import GHC.Exts qualified as GHC
-import GHC.Records (HasField, getField)
 
 --------------------------------------------------------------------------------
 
+import Opal.Common.Name (Name)
+import Opal.Common.Name qualified as Name
 import Opal.Common.Symbol (Symbol)
 import Opal.Common.Symbol qualified as Symbol
 
@@ -33,50 +37,52 @@ import Opal.Common.Symbol qualified as Symbol
 -- | TODO
 --
 -- @since 1.0.0
-data GenSym = GenSym (Maybe Symbol) Int
+data GenSym = GenSym
+  { base :: {-# UNPACK #-} !Symbol
+  , uuid :: {-# UNPACK #-} !Int
+  }
   deriving (Data, Eq, Ord)
 
 -- | @since 1.0.0
-instance HasField "symbol" GenSym Symbol where 
-  getField = symbol
-  {-# INLINE getField #-}
-
--- | @since 1.0.0
-instance Show GenSym where 
-  show = show . symbol
+instance Show GenSym where
+  show = show . toSymbol
   {-# INLINE CONLIKE show #-}
 
 -- | TODO
 --
 -- @since 1.0.0
-base :: GenSym -> Maybe Symbol
-base (GenSym x _) = x
-{-# INLINE base #-}
+makeGenSym :: Maybe Symbol -> Int -> GenSym
+makeGenSym name = GenSym (fromMaybe defaultSymbol name)
 
 -- | TODO
 --
 -- @since 1.0.0
-uuid :: GenSym -> Int
-uuid (GenSym _ x) = x
-{-# INLINE uuid #-}
+defaultSymbol :: Symbol
+defaultSymbol = Symbol.pack "g"
+
+-- GenSym - Conversion ---------------------------------------------------------
 
 -- | TODO
 --
 -- @since 1.0.0
-symbol :: GenSym -> Symbol
-symbol (GenSym Nothing x) = Symbol.pack ("#g:" ++ show x)
-symbol (GenSym (Just b) x) = Symbol.pack ("#" ++ shows b ":" ++ show x)
-{-# INLINE symbol #-}
+toName :: GenSym -> Name
+toName gensym = Name.pack (show gensym.base ++ show gensym.uuid)
+
+-- | TODO
+--
+-- @since 1.0.0
+toSymbol :: GenSym -> Symbol
+toSymbol gensym = Symbol.pack (show gensym.base ++ show gensym.uuid)
 
 --------------------------------------------------------------------------------
 
 -- | TODO
 --
 -- @since 1.0.0
-class Monad m => MonadGenSym m where 
+class Monad m => MonadGenSym m where
   newGenSym :: m GenSym
 
-  newGenSymWith :: Symbol -> m GenSym 
+  newGenSymWith :: Symbol -> m GenSym
 
 --------------------------------------------------------------------------------
 
@@ -113,15 +119,14 @@ instance Monad GenSymM where
   {-# INLINE (>>=) #-}
 
 -- | @since 1.0.0
-instance MonadGenSym GenSymM where 
-  newGenSym = GenSymM \id0# -> 
-    (# 1# GHC.+# id0#, GenSym Nothing (I# id0#) #)
+instance MonadGenSym GenSymM where
+  newGenSym = GenSymM \id0# ->
+    (# 1# GHC.+# id0#, GenSym defaultSymbol (I# id0#) #)
   {-# INLINE newGenSym #-}
 
-  newGenSymWith idt = GenSymM \id0# -> 
-    (# 1# GHC.+# id0#, GenSym (Just idt) (I# id0#) #)
+  newGenSymWith idt = GenSymM \id0# ->
+    (# 1# GHC.+# id0#, GenSym idt (I# id0#) #)
   {-# INLINE newGenSymWith #-}
-
 
 -- | TODO
 --

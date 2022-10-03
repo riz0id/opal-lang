@@ -2,30 +2,34 @@
 
 module Opal.Expand.Syntax.Binding
   ( -- * TODO
-    Binding (GenBinding, SymBinding),
-    scopes,
-    symbol,
+    Binder (BindPrim, BindName),
 
-    -- * Construction
-    newBinding,
-    newBindingWith,
+    -- * TODO
+    Binding (Binding, binder, scopes),
 
     -- * Scope Set Operations
     overlaps,
     superset,
+
+    -- * Folds
+    maximum,
   )
 where
 
-import Data.Data (Data)
-import Data.Kind (Type)
+import Control.Monad.ST.Strict (runST)
 
-import GHC.Records (HasField, getField)
+import Data.Data (Data)
+import Data.Foldable (for_)
+import Data.Primitive.MutVar (modifyMutVar', newMutVar, readMutVar, writeMutVar)
+import Data.Set (Set)
+import Data.Set qualified as Set
+
+import Prelude hiding (maximum)
 
 --------------------------------------------------------------------------------
 
-import Opal.Common.GenSym (GenSym, MonadGenSym)
-import Opal.Common.GenSym qualified as GenSym
-import Opal.Common.Symbol (Symbol)
+import Opal.Core.Prim (Prim)
+import Opal.Common.Name (Name)
 
 import Opal.Expand.Syntax.ScopeSet (ScopeSet)
 import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
@@ -35,54 +39,21 @@ import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
 -- | TODO
 --
 -- @since 1.0.0
-data Binding :: Type where
-  GenBinding :: ScopeSet -> GenSym -> Binding
-  SymBinding :: ScopeSet -> Symbol -> Binding
+data Binder 
+  = BindPrim Prim 
+  | BindName Name
   deriving (Data, Eq, Ord, Show)
 
--- | @since 1.0.0
-instance HasField "symbol" Binding Symbol where
-  getField (GenBinding _ gen) = gen.symbol
-  getField (SymBinding _ sym) = sym
-  {-# INLINE getField #-}
-
--- | @since 1.0.0
-instance HasField "scopes" Binding ScopeSet where
-  getField (GenBinding scps _) = scps
-  getField (SymBinding scps _) = scps
-  {-# INLINE getField #-}
+--------------------------------------------------------------------------------
 
 -- | TODO
 --
 -- @since 1.0.0
-symbol :: Binding -> Symbol
-symbol (GenBinding _ gen) = GenSym.symbol gen
-symbol (SymBinding _ sym) = sym
-{-# INLINE symbol #-}
-
--- | TODO
---
--- @since 1.0.0
-scopes :: Binding -> ScopeSet
-scopes (GenBinding scps _) = scps
-scopes (SymBinding scps _) = scps
-{-# INLINE scopes #-}
-
--- Construction ----------------------------------------------------------------
-
--- | Constructs a new 'Binding' that binds a generated symbol to the set of
--- scopes.
---
--- @since 1.0.0
-newBinding :: MonadGenSym m => ScopeSet -> m Binding
-newBinding scps = fmap (GenBinding scps) GenSym.newGenSym
-
--- | Like 'newBinding', but uses the provided 'Symbol' as the base 'Symbol' for
--- the binding's generated symbol.
---
--- @since 1.0.0
-newBindingWith :: MonadGenSym m => Symbol -> ScopeSet -> m Binding
-newBindingWith s scps = fmap (GenBinding scps) (GenSym.newGenSymWith s)
+data Binding = Binding
+  { scopes :: ScopeSet
+  , binder :: Binder
+  }
+  deriving (Data, Eq, Ord, Show)
 
 -- Scope Set Operations --------------------------------------------------------
 
@@ -97,3 +68,24 @@ overlaps a b = ScopeSet.overlaps (scopes a) (scopes b)
 -- @since 1.0.0
 superset :: Binding -> Binding -> Bool
 superset a b = ScopeSet.superset (scopes a) (scopes b)
+
+-- Folds -----------------------------------------------------------------------
+
+-- | TODO
+--
+-- @since 1.0.0
+maximum :: Set Binding -> Set Binding
+maximum bindings = runST do
+  mutSize <- newMutVar 0
+  mutMaxs <- newMutVar Set.empty
+
+  for_ (Set.toList bindings) \binding -> do
+    len <- readMutVar mutSize
+    case compare len (ScopeSet.size binding.scopes) of
+      GT -> pure ()
+      EQ -> modifyMutVar' mutMaxs (Set.insert binding)
+      LT -> do
+        writeMutVar mutSize (ScopeSet.size binding.scopes)
+        writeMutVar mutMaxs (Set.singleton binding)
+
+  readMutVar mutMaxs

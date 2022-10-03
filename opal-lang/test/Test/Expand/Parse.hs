@@ -1,16 +1,18 @@
-module Test.Expand 
+module Test.Expand.Parse
   ( testTree
   ) 
 where
 
-import Test.Compat (TestTree, testGroup)
-import Test.Expand.Parse qualified
+import Test.Core 
 
 --------------------------------------------------------------------------------
 
 testTree :: TestTree
 testTree =
   testGroup
-    "Test"
-    [ Test.Expand.Parse.testTree
-    ]
+    "Parse" 
+    []
+    -- [ testProp "let-syntax" $ property do 
+        
+    --     _
+    -- ]

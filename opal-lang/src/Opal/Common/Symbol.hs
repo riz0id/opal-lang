@@ -1,4 +1,3 @@
-
 module Opal.Common.Symbol
   ( -- * TODO
     Symbol (Symbol),
@@ -6,7 +5,9 @@ module Opal.Common.Symbol
     -- * Construction
     pack,
     unpack,
-    -- sliceByteArray,
+
+    -- * Conversion
+    toName,
 
     -- * Query
     size,
@@ -14,75 +15,49 @@ module Opal.Common.Symbol
   )
 where
 
-import Data.Data (Data, dataTypeOf, gunfold, mkNoRepType, toConstr)
-import Data.Kind (Type)
+import Data.Coerce (coerce)
+import Data.Data (Data)
+import Data.Primitive.Ptr (Ptr)
 import Data.String (IsString)
-import Data.Bool.Prim qualified as Bool
-import Data.CharArray.Prim (CharArray#)
-import Data.CharArray.Prim qualified as CharArray
 
-import GHC.Exts (Int (I#))
 import GHC.Exts qualified as GHC
-import GHC.Ptr (Ptr (Ptr))
-
-import Prettyprinter (Pretty, (<+>))
-import Prettyprinter qualified as Print
 
 --------------------------------------------------------------------------------
 
-data Symbol :: Type where
-  Symbol :: CharArray# -> Symbol
+import Opal.Common.Name (Name)
+import Opal.Common.Name qualified as Name
 
-instance Data Symbol where
-  toConstr _ = error "toConstr on type Symbol"
-  {-# INLINE CONLIKE toConstr #-}
+--------------------------------------------------------------------------------
 
-  gunfold _ _ = error "gunfold on type Symbol"
-  {-# INLINE CONLIKE gunfold #-}
-
-  dataTypeOf _ = mkNoRepType "Opal.Symbol"
-  {-# INLINE CONLIKE dataTypeOf #-}
-
-instance Eq Symbol where
-  Symbol xs# == Symbol ys# = Bool.toBool (CharArray.eq# xs# ys#)
-  {-# INLINE (==) #-}
-
-instance Ord Symbol where
-  compare xs ys = compare (unpack xs) (unpack ys)
-  {-# INLINE compare #-}
-
--- | @since 1.0.0
-instance Pretty Symbol where
-  pretty x = Print.squote <> Print.viaShow x
-  {-# INLINE pretty #-}
-
-  prettyList xs = Print.parens (foldr ((<+>) . Print.viaShow) Print.emptyDoc xs)
-  {-# INLINE prettyList #-}
-
-instance Show Symbol where
-  show = unpack
-  {-# INLINE show #-}
+newtype Symbol = Symbol Name
+  deriving (Data, Eq, Ord, Show)
 
 instance IsString Symbol where
-  fromString = pack 
+  fromString = pack
   {-# INLINE fromString #-}
 
 -- Construction ----------------------------------------------------------------
 
 pack :: String -> Symbol
-pack str = Symbol (CharArray.pack# str)
+pack = coerce Name.pack
 {-# INLINE pack #-}
 
 unpack :: Symbol -> String
-unpack (Symbol xs#) = CharArray.unpack# xs#
+unpack = coerce Name.unpack
 {-# INLINE unpack #-}
+
+-- Conversion ------------------------------------------------------------------
+
+toName :: Symbol -> Name
+toName = coerce
+{-# INLINE toName #-}
 
 -- Query -----------------------------------------------------------------------
 
 size :: Symbol -> Int
-size (Symbol s#) = I# (CharArray.size# s#)
+size = coerce Name.size
 {-# INLINE size #-}
 
 ptr :: Symbol -> Ptr Char
-ptr (Symbol s#) = Ptr (CharArray.address# s#)
+ptr = coerce Name.ptr
 {-# INLINE ptr #-}

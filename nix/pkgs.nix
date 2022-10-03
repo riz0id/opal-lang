@@ -8,10 +8,13 @@ in import nixpkgs {
       (import extensions/opal.nix {
         inherit ghc;
       })
+      (import extensions/parsel.nix {
+        inherit ghc;
+      })
       (import extensions/prim-bool.nix {
         inherit ghc;
       })
-      (import extensions/prim-bytes.nix {
+      (import extensions/prim-bytearray.nix {
         inherit ghc;
       })
       (import extensions/prim-char.nix {

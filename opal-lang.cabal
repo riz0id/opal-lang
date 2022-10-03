@@ -62,51 +62,55 @@ library
   ghc-options:
     -j4
 
+    -O3
+
+    -fmax-simplifier-iterations=20
+    
+    -- `-foptimal-applicative-do` is enabled to get to ensure optimal
+    -- applicative layout in the "Opal.Reader" parse, which depends on the 
+    -- -XApplicativeDo extension.
+    -foptimal-applicative-do
+
+    -ddump-to-file
+    -ddump-stg-final
+    -ddump-simpl
+    -dppr-cols=120
+    -dsuppress-module-prefixes
+    -dsuppress-uniques
+    -dyno
+
   build-depends:
     , containers
     , ghc-prim
+    , parsel
     , primitive
     , prim-bool 
-    , prim-bytes
+    , prim-ord
+    , prim-bytearray
     , template-haskell 
 
   exposed-modules:
     Data.Exception.Memory
     Data.IO.FileBuffer
-    Opal.AST.Atom
-    Opal.AST.Literal
-    Opal.AST.Prim
     Opal.Common.GenSym
+    Opal.Common.Name
     Opal.Common.Symbol
-    Opal.Expand
+    Opal.Core
+    Opal.Core.Atom
+    Opal.Core.Datum
+    Opal.Core.Prim
+    Opal.Core.SExp
+    Opal.Evaluate
     Opal.Expand.Common.Intern
     Opal.Expand.Common.Intern.Monad
-    Opal.Expand.Context
-    Opal.Expand.Eval
-    Opal.Expand.Eval.Monad
-    Opal.Expand.Monad
-    Opal.Expand.Parse
-    Opal.Expand.Parse.Monad
-    Opal.Expand.Resolve
-    Opal.Expand.Resolve.Class
-    Opal.Expand.Resolve.Monad
     Opal.Expand.Syntax
     Opal.Expand.Syntax.Binding
-    Opal.Expand.Syntax.BindTable
+    Opal.Expand.Syntax.BindStore
     Opal.Expand.Syntax.MultiScopeSet
     Opal.Expand.Syntax.ScopeSet
-    Opal.Expand.Transformer
-    Opal.Expr
-    Opal.Print
-    Opal.Reader
-    Opal.Reader.Bool
-    Opal.Reader.Quote
-    Opal.Run
-
-    Data.Parse
-    Data.Parse.Context
-    Data.Parse.Error
-    Data.Parse.Monad
+    Opal.Expand.Transform
+    Opal.Parse
+    Opal.Read
 
 test-suite test
   import:         common
@@ -128,30 +132,11 @@ test-suite test
   other-modules: 
     Test.Compat
     Test.Core
+    Test.Common.Gen
     Test.Expand
-    Test.Expand.Lexer
-    Test.Expand.Lexer.Core
-    Test.Parse
-
-executable opal-repl
-  import:         common
-  hs-source-dirs: opal-repl/src
-  main-is:        Main.hs
-  ghc-options:    
-    -O2
-
-  build-depends:  
-    , opal-lang
-    , primitive
-    , prim-bytes
-    , prim-int
-
-  other-modules:
-    Control.Monad.Cont
-    Opal.Repl.CLI
-    Opal.Repl.Input
-    Opal.Repl.Input.Monad
-    Opal.Repl.Parse
+    Test.Expand.Parse
+    Test.Expand.Syntax
+    Test.Expand.Syntax.Gen
 
 source-repository head
   type:     git

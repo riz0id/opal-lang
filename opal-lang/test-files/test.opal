@@ -1,10 +1,9 @@
 
-'(#t #f #t #f)
+(let [(x #t)] x)
 
-(lambda (x y) 
-  (let-syntax 
-    [const (lambda stx #'x)]
-    (const y)))
+(let 
+  [(const (lambda (x y) x))]
+  (const #t #t))
 
 (let-syntax 
   [(const-stx (lambda (x stx) x))]

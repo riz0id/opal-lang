@@ -31,3 +31,4 @@ import Test.Tasty (TestName, TestTree, testGroup)
 -- | Like 'testProp', but only performs a single test run on the 'Property'.
 testCase :: TestName -> Property -> TestTree
 testCase name prop = testProp name (withTests 1 prop)
+

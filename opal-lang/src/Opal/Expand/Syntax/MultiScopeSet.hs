@@ -1,5 +1,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Opal.Expand.Syntax.MultiScopeSet
   ( -- * PhaseId
@@ -12,8 +13,9 @@ module Opal.Expand.Syntax.MultiScopeSet
     -- * Construction
     empty,
     singleton,
+    fromList,
 
-    -- * Index
+    -- * Query
     member,
 
     -- * Index
@@ -22,13 +24,18 @@ module Opal.Expand.Syntax.MultiScopeSet
 
     -- * Insert
     insert,
+    inserts,
 
     -- * Delete
     delete,
     prune,
+
+    -- * Update
+    adjust,
   )
 where
 
+import Data.Bifunctor (Bifunctor (first))
 import Data.Data (Data)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
@@ -39,6 +46,7 @@ import Prelude hiding (lookup, null)
 
 --------------------------------------------------------------------------------
 
+import Data.Coerce (coerce)
 import Opal.Expand.Syntax.ScopeSet (ScopeId, ScopeSet)
 import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
 
@@ -48,7 +56,7 @@ import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
 --
 -- @since 1.0.0
 newtype Phase :: Type where
-  Phase :: Int -> Phase
+  Phase :: {getPhase :: Int} -> Phase
   deriving (Data, Enum, Eq, Ord, Show)
 
 -- MultiScopeSet ---------------------------------------------------------------
@@ -60,10 +68,10 @@ newtype MultiScopeSet :: Type where
   MultiScopeSet :: IntMap ScopeSet -> MultiScopeSet
   deriving (Data, Eq, Ord, Show)
 
--- | TODO 
+-- | TODO
 --
 -- @since 1.0.0
-flipscope :: Phase -> ScopeId -> MultiScopeSet -> MultiScopeSet 
+flipscope :: Phase -> ScopeId -> MultiScopeSet -> MultiScopeSet
 flipscope ph sc scopes
   | member ph sc scopes = delete ph sc scopes
   | otherwise = insert ph sc scopes
@@ -80,8 +88,14 @@ empty = MultiScopeSet IntMap.empty
 -- | TODO
 --
 -- @since 1.0.0
-singleton :: Phase -> ScopeId -> MultiScopeSet
-singleton (Phase ph) sc = MultiScopeSet (IntMap.singleton ph (ScopeSet.singleton sc))
+singleton :: Phase -> ScopeSet -> MultiScopeSet
+singleton = coerce @(_ -> ScopeSet -> _) IntMap.singleton 
+
+-- | TODO
+--
+-- @since 1.0.0
+fromList :: [(Phase, ScopeSet)] -> MultiScopeSet
+fromList = MultiScopeSet . IntMap.fromList . map (first getPhase)
 
 -- Query -----------------------------------------------------------------------
 
@@ -89,10 +103,7 @@ singleton (Phase ph) sc = MultiScopeSet (IntMap.singleton ph (ScopeSet.singleton
 --
 -- @since 1.0.0
 member :: Phase -> ScopeId -> MultiScopeSet -> Bool
-member (Phase ph) sc (MultiScopeSet scopes) =
-  case IntMap.lookup ph scopes of
-    Nothing -> False
-    Just set -> ScopeSet.member sc set
+member ph sc multiset = maybe False (ScopeSet.member sc) (lookup ph multiset)
 
 -- Index -----------------------------------------------------------------------
 
@@ -100,13 +111,13 @@ member (Phase ph) sc (MultiScopeSet scopes) =
 --
 -- @since 1.0.0
 index :: Phase -> MultiScopeSet -> ScopeSet
-index ph scopes = fromMaybe ScopeSet.empty (lookup ph scopes)
+index ph multiset = fromMaybe ScopeSet.empty (lookup ph multiset)
 
 -- | TODO
 --
 -- @since 1.0.0
 lookup :: Phase -> MultiScopeSet -> Maybe ScopeSet
-lookup (Phase ph) (MultiScopeSet scopes) = IntMap.lookup ph scopes
+lookup = coerce @(_ -> _ -> Maybe ScopeSet) IntMap.lookup
 
 -- Insert ----------------------------------------------------------------------
 
@@ -114,25 +125,36 @@ lookup (Phase ph) (MultiScopeSet scopes) = IntMap.lookup ph scopes
 --
 -- @since 1.0.0
 insert :: Phase -> ScopeId -> MultiScopeSet -> MultiScopeSet
-insert (Phase ph) sc (MultiScopeSet scopes) =
-  MultiScopeSet (IntMap.alter alter ph scopes)
-  where
-    alter :: Maybe ScopeSet -> Maybe ScopeSet
-    alter Nothing = Just (ScopeSet.singleton sc)
-    alter (Just set) = Just (ScopeSet.insert sc set)
-
--- Delete ----------------------------------------------------------------------
+insert ph sc = adjust ph (ScopeSet.insert sc)
 
 -- | TODO
 --
 -- @since 1.0.0
+inserts :: Phase -> ScopeSet -> MultiScopeSet -> MultiScopeSet
+inserts ph scopes multiset = ScopeSet.foldr' (insert ph) multiset scopes
+
+-- Delete ----------------------------------------------------------------------
+
+-- | Removes the scope from a set of scopes at the phase specified, if it is 
+-- present. Otherwise, the 'MultiScopeSet' is left unchanged.
+--
+-- @since 1.0.0
 delete :: Phase -> ScopeId -> MultiScopeSet -> MultiScopeSet
-delete (Phase ph) sc (MultiScopeSet scopes) = 
-  MultiScopeSet (IntMap.adjust (ScopeSet.delete sc) ph scopes)
+delete ph sc = adjust ph (ScopeSet.delete sc) 
 
 -- | TODO
 --
 -- @since 1.0.0
 prune :: Phase -> ScopeSet -> MultiScopeSet -> MultiScopeSet
-prune (Phase ph) set (MultiScopeSet scopes) = 
-  MultiScopeSet (IntMap.adjust (`ScopeSet.difference` set) ph scopes)
+prune ph scopes = adjust ph (`ScopeSet.difference` scopes)
+
+-- Delete ----------------------------------------------------------------------
+
+-- | Adjusts the set of scopes at a particular phase. 
+--
+-- @since 1.0.0
+adjust :: Phase -> (ScopeSet -> ScopeSet) -> MultiScopeSet -> MultiScopeSet
+adjust ph f = coerce @(_ -> _ -> IntMap ScopeSet -> _) IntMap.alter update ph
+  where
+    update :: Maybe ScopeSet -> Maybe ScopeSet
+    update scopes = Just (maybe (f ScopeSet.empty) f scopes)
