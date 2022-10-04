@@ -1,6 +1,6 @@
 cabal-version: 2.4
 
-name:        opal-lang
+name:        opal
 category:    Language
 version:     0.0.0
 synopsis:    TODO
@@ -21,6 +21,10 @@ extra-source-files:
 tested-with:
   GHC == 9.2.2
   GHC == 9.0.2
+
+source-repository head
+  type:     git
+  location: https://github.com/riz0id/opal-lang
 
 flag llvm
   Description: Compile using the LLVM backend.
@@ -53,7 +57,7 @@ common common
 
 library
   import:         common
-  hs-source-dirs: opal-lang/src
+  hs-source-dirs: opal/src
 
   default-extensions:
     DataKinds DeriveDataTypeable GeneralizedNewtypeDeriving 
@@ -110,34 +114,41 @@ library
     Opal.Expand.Syntax.ScopeSet
     Opal.Expand.Transform
     Opal.Parse
+    Opal.Print
     Opal.Read
 
-test-suite test
+executable opal
   import:         common
-  type:           exitcode-stdio-1.0
-  hs-source-dirs: opal-lang/test
-  main-is:        Test.hs
+  hs-source-dirs: compiler/src
+  main-is:        Main.hs
+  ghc-options:    -O2
 
-  ghc-options:
-    -threaded
-    -rtsopts
-    "-with-rtsopts=-N"
+  build-depends:  
+    , opal
+    , parsel
 
-  build-depends:
-    , hedgehog
-    , opal-lang
-    , tasty
-    , tasty-hedgehog 
+-- test-suite test
+--   import:         common
+--   type:           exitcode-stdio-1.0
+--   hs-source-dirs: opal-lang/test
+--   main-is:        Main.hs
 
-  other-modules: 
-    Test.Compat
-    Test.Core
-    Test.Common.Gen
-    Test.Expand
-    Test.Expand.Parse
-    Test.Expand.Syntax
-    Test.Expand.Syntax.Gen
+--   ghc-options:
+--     -threaded
+--     -rtsopts
+--     "-with-rtsopts=-N"
 
-source-repository head
-  type:     git
-  location: https://github.com/riz0id/opal-lang
+--   build-depends:
+--     , hedgehog
+--     , opal-lang
+--     , tasty
+--     , tasty-hedgehog 
+
+--   other-modules: 
+--     Test.Compat
+--     Test.Core
+--     Test.Common.Gen
+--     Test.Expand
+--     Test.Expand.Parse
+--     Test.Expand.Syntax
+--     Test.Expand.Syntax.Gen

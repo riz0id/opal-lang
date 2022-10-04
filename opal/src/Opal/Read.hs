@@ -7,7 +7,7 @@ module Opal.Read
   )
 where
 
-import Control.Applicative (many, some)
+import Control.Applicative (many, some, (<|>))
 
 import Data.SrcLoc (SrcLoc)
 import Data.SrcLoc qualified as SrcLoc
@@ -58,12 +58,7 @@ makeStxList begin end stxs =
 --
 -- @since 1.0.0
 rSyntax :: Parse Syntax
-rSyntax =
-  Parsel.choice
-    [ rStxPrim
-    , rStxAtom
-    , rStxList
-    ]
+rSyntax = many Parsel.whitespace *> Parsel.choice [rStxPrim, rStxAtom, rStxList]
 
 -- | TODO
 --
@@ -147,7 +142,7 @@ rStxPrimUnsyntax = do
 rStxAtom :: Parse Syntax
 rStxAtom = do
   srcloc <- Parsel.location
-  symbol <- some Parsel.alphaNum
+  symbol <- some (foldr ((<|>) . Parsel.char) Parsel.alphaNum "-/!")
   many Parsel.whitespace
   pure (makeStxAtom srcloc symbol)
 
@@ -157,9 +152,13 @@ rStxAtom = do
 rStxList :: Parse Syntax
 rStxList = do
   begin <- Parsel.location
-  stxs <- Parsel.parentheses $ Parsel.surround (many Parsel.whitespace) $ many rSyntax
+  stxs <- rList $ Parsel.surround (many Parsel.whitespace) $ many rSyntax
   end <- Parsel.location
+  many Parsel.whitespace
   pure (makeStxList begin end stxs)
+  where 
+    rList :: Parse a -> Parse a 
+    rList tok = Parsel.parentheses tok <|> Parsel.brackets tok
 
 --------------------------------------------------------------------------------
 
