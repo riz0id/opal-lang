@@ -1,7 +1,9 @@
 module Opal.Core.Prim
   ( -- * Primitives
     Prim
-      ( PrimStxExpr,
+      ( PrimCase, 
+        PrimClauseDef,
+        PrimStxExpr,
         PrimMakeStx,
         PrimSetMut,
         PrimBoolTrue,
@@ -9,10 +11,12 @@ module Opal.Core.Prim
         PrimSyntax,
         PrimLambda,
         PrimLetSyntax,
-        PrimQuote
+        PrimQuote,
+        PrimVoid
       ),
 
     primToSymbol,
+    primToName,
     primSourceSpan,
   )
 where
@@ -23,6 +27,8 @@ import Data.Data (Data)
 
 import Opal.Common.Symbol (Symbol)
 import Opal.Common.Symbol qualified as Symbol
+import Opal.Common.Name (Name)
+import Opal.Common.Name qualified as Name
 
 --------------------------------------------------------------------------------
 
@@ -30,30 +36,42 @@ import Opal.Common.Symbol qualified as Symbol
 --
 -- @since 1.0.0
 data Prim
-  = PrimStxExpr
-  | PrimMakeStx
-  | PrimSetMut
-  | PrimBoolTrue
+  = PrimCase
+  | PrimClauseDef
   | PrimBoolFalse
-  | PrimSyntax 
+  | PrimBoolTrue
+  | PrimMakeStx
   | PrimLambda
   | PrimLetSyntax
   | PrimQuote
+  | PrimSetMut
+  | PrimStxExpr
+  | PrimSyntax 
+  | PrimVoid
   deriving (Data, Eq, Ord, Show)
 
 -- | TODO
 --
 -- @since 1.0.0
 primToSymbol :: Prim -> Symbol
-primToSymbol PrimStxExpr = Symbol.pack "stx-e"
-primToSymbol PrimMakeStx = Symbol.pack "mk-stx"
-primToSymbol PrimSetMut = Symbol.pack "set!"
-primToSymbol PrimBoolFalse = Symbol.pack "#f"
-primToSymbol PrimBoolTrue = Symbol.pack "#t"
-primToSymbol PrimSyntax = Symbol.pack "syntax"
-primToSymbol PrimLambda = Symbol.pack "lambda"
-primToSymbol PrimLetSyntax = Symbol.pack "let-syntax"
-primToSymbol PrimQuote = Symbol.pack "quote"
+primToSymbol prim = Symbol.Symbol (primToName prim)
+
+-- | TODO
+--
+-- @since 1.0.0
+primToName :: Prim -> Name
+primToName PrimCase = Name.pack "case"
+primToName PrimClauseDef = Name.pack "def"
+primToName PrimBoolFalse = Name.pack "#f"
+primToName PrimBoolTrue = Name.pack "#t"
+primToName PrimMakeStx = Name.pack "mk-stx"
+primToName PrimLambda = Name.pack "lambda"
+primToName PrimLetSyntax = Name.pack "let-syntax"
+primToName PrimQuote = Name.pack "quote"
+primToName PrimSetMut = Name.pack "set!"
+primToName PrimStxExpr = Name.pack "stx-e"
+primToName PrimSyntax = Name.pack "syntax"
+primToName PrimVoid = Name.pack "#<void>"
 
 -- | TODO
 --

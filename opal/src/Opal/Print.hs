@@ -1,18 +1,50 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Opal.Print
   ( -- * TODO
+    pprDatum,
+    pprSExp,
     pprSyntax,
-    pprStxCtx,
-    pprStxAtom,
-    pprStxList,
+
+    -- * TODO
+    docSExp,
+    docSExpVar,
+    docSExpApp,
+
+    -- * TODO
+    docDatum,
+    docClause,
+
+    -- * TODO
+    docSyntax,
+    docStxCtx,
+    docStxAtom,
+    docStxList,
   )
 where
 
 import Data.SrcLoc (SrcLoc (coln, line))
+import Data.Text (Text)
+import Data.Text qualified as Text
+
+import Text.Emit (Doc, emit, (<+>))
+import Text.Emit qualified as Emit
 
 --------------------------------------------------------------------------------
 
+import Opal.Common.Name (Name)
+import Opal.Common.Name qualified as Name
 import Opal.Common.Symbol (Symbol)
 import Opal.Common.Symbol qualified as Symbol
+
+import Opal.Core
+  ( Datum (DatumAtom, DatumList, DatumPrim, DatumProc, DatumStx),
+    Expr,
+    Prim (PrimBoolFalse, PrimBoolTrue),
+    SExp (SExpApp, SExpVal, SExpVar),
+  )
+import Opal.Core.Datum (Clause (Clause), Datum (DatumCase))
+import Opal.Core.Prim qualified as Prim
 
 import Opal.Expand.Syntax (StxCtx, Syntax (StxAtom, StxList))
 import Opal.Expand.Syntax qualified as Syntax
@@ -22,29 +54,114 @@ import Opal.Expand.Syntax qualified as Syntax
 -- | TODO
 --
 -- @since 1.0.0
-pprSyntax :: Syntax -> String
-pprSyntax (StxAtom ctx atom) = pprStxAtom ctx atom
-pprSyntax (StxList ctx stxs) = pprStxList ctx stxs
+pprDatum :: Datum -> Text
+pprDatum dtm = Emit.layout (docDatum dtm)
 
 -- | TODO
 --
 -- @since 1.0.0
-pprStxCtx :: StxCtx -> String
-pprStxCtx ctx = shows ctx.location.line ":" ++ show ctx.location.coln
+pprSExp :: Expr -> Text
+pprSExp sexp = Emit.layout (docSExp sexp)
 
 -- | TODO
 --
 -- @since 1.0.0
-pprStxAtom :: StxCtx -> Symbol -> String
-pprStxAtom ctx atom = "#<syntax:" ++ pprStxCtx ctx ++ ": " ++ shows atom ">"
+pprSyntax :: Syntax -> Text
+pprSyntax stx = Emit.layout (docSyntax stx)
+
+-- TODO ------------------------------------------------------------------------
 
 -- | TODO
 --
 -- @since 1.0.0
-pprStxList :: StxCtx -> [Syntax] -> String
-pprStxList ctx stxs =
-  "#<syntax:" ++ pprStxCtx ctx ++ " (" ++ unwords (map pprStxElem stxs) ++ ")>"
+docSExp :: Expr -> Doc a
+docSExp (SExpVal val) = docDatum val
+docSExp (SExpVar var) = docSExpVar var
+docSExp (SExpApp fun args) = docSExpApp fun args
+
+-- | TODO
+--
+-- @since 1.0.0
+docSExpVar :: Name -> Doc a
+docSExpVar var = Emit.text (Text.pack (Name.unpack var))
+
+-- | TODO
+--
+-- @since 1.0.0
+docSExpApp :: Expr -> [Expr] -> Doc a
+docSExpApp fun args = Emit.parens (Emit.hsep (map docSExp (fun : args)))
+
+-- TODO ------------------------------------------------------------------------
+
+-- | TODO
+--
+-- @since 1.0.0
+docDatum :: Datum -> Doc a
+docDatum (DatumStx stx) = docSyntax stx
+docDatum (DatumAtom atom) = Emit.text (Text.pack ('\'' : Symbol.unpack atom))
+docDatum (DatumPrim prim) = docPrim prim
+docDatum (DatumProc vars body) =
+  "'(λ ("
+    <> Emit.hsep (map emit vars)
+    <> Emit.text ") ->"
+    <> Emit.nest 2 (docSExp body)
+    <> ")"
+docDatum (DatumCase scrut cases) =
+  "'(case"
+    <+> Emit.parens (docSExp scrut)
+    <+> "->"
+    <> Emit.nest 2 (Emit.vsep (map docClause cases))
+    <> ")"
+docDatum (DatumList vals) =
+  "'" <> Emit.parens (Emit.hsep (map docDatum vals))
+
+-- | TODO
+--
+-- @since 1.0.0
+docClause :: Clause -> Doc a
+docClause (Clause pat body) = "'" <> Emit.bracks (docDatum pat <+> docSExp body)
+
+-- TODO ------------------------------------------------------------------------
+
+-- | TODO
+--
+-- @since 1.0.0
+docPrim :: Prim -> Doc a
+docPrim PrimBoolFalse = "#f"
+docPrim PrimBoolTrue = "#t"
+docPrim prim = "'" <> Emit.text (Text.pack (Name.unpack (Prim.primToName prim)))
+
+-- TODO ------------------------------------------------------------------------
+
+-- | TODO
+--
+-- @since 1.0.0
+docSyntax :: Syntax -> Doc a
+docSyntax (StxAtom ctx atom) = docStxAtom ctx atom
+docSyntax (StxList ctx stxs) = docStxList ctx stxs
+
+-- | TODO
+--
+-- @since 1.0.0
+docStxCtx :: StxCtx -> Doc a
+docStxCtx ctx = emit ctx.location.line <> ":" <> emit ctx.location.coln
+
+-- | TODO
+--
+-- @since 1.0.0
+docStxAtom :: StxCtx -> Symbol -> Doc a
+docStxAtom ctx atom = "#<syntax:" <> docStxCtx ctx <> ":" <+> emit atom <> ">"
+
+-- | TODO
+--
+-- @since 1.0.0
+docStxList :: StxCtx -> [Syntax] -> Doc a
+docStxList ctx stxs =
+  "#<syntax:"
+    <> docStxCtx ctx
+    <+> Emit.parens (Emit.hsep (map docStxElem stxs))
+    <> ">"
   where
-    pprStxElem :: Syntax -> String
-    pprStxElem (StxAtom _ atom) = Symbol.unpack atom
-    pprStxElem (StxList _ stxs') = "(" ++ unwords (map pprStxElem stxs') ++ ")"
+    docStxElem :: Syntax -> Doc a
+    docStxElem (StxAtom _ atom) = emit atom
+    docStxElem (StxList _ stxs') = Emit.parens (Emit.hsep (map docStxElem stxs'))

@@ -7,9 +7,15 @@ module Opal.Expand.Syntax.Binding
     -- * TODO
     Binding (Binding, binder, scopes),
 
+    -- * Construction
+    makePrimBinding,
+
     -- * Scope Set Operations
     overlaps,
     superset,
+
+    -- * Predicates 
+    subset,
 
     -- * Folds
     maximum,
@@ -55,6 +61,14 @@ data Binding = Binding
   }
   deriving (Data, Eq, Ord, Show)
 
+-- Construction ----------------------------------------------------------------
+
+-- | TODO
+--
+-- @since 1.0.0
+makePrimBinding :: Prim -> Binding 
+makePrimBinding prim = Binding (ScopeSet.singleton 0) (BindPrim prim)  
+  
 -- Scope Set Operations --------------------------------------------------------
 
 -- | TODO
@@ -69,12 +83,20 @@ overlaps a b = ScopeSet.overlaps (scopes a) (scopes b)
 superset :: Binding -> Binding -> Bool
 superset a b = ScopeSet.superset (scopes a) (scopes b)
 
+-- Predicates ------------------------------------------------------------------
+
+-- | TODO
+--
+-- @since 1.0.0
+subset :: Binding -> ScopeSet -> Bool
+subset binding scps = ScopeSet.subset binding.scopes scps 
+
 -- Folds -----------------------------------------------------------------------
 
 -- | TODO
 --
 -- @since 1.0.0
-maximum :: Set Binding -> Set Binding
+maximum :: Set Binding -> Maybe Binding
 maximum bindings = runST do
   mutSize <- newMutVar 0
   mutMaxs <- newMutVar Set.empty
@@ -88,4 +110,7 @@ maximum bindings = runST do
         writeMutVar mutSize (ScopeSet.size binding.scopes)
         writeMutVar mutMaxs (Set.singleton binding)
 
-  readMutVar mutMaxs
+  result <- readMutVar mutMaxs
+  case Set.maxView result of 
+    Nothing -> pure Nothing
+    Just rx -> pure (Just $ fst rx)

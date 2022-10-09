@@ -54,6 +54,7 @@ common common
     , mtl
     , prettyprinter
     , source-locations
+    , text
 
 library
   import:         common
@@ -85,6 +86,7 @@ library
 
   build-depends:
     , containers
+    , emit
     , ghc-prim
     , parsel
     , primitive
@@ -105,8 +107,10 @@ library
     Opal.Core.Prim
     Opal.Core.SExp
     Opal.Evaluate
+    Opal.Expand
     Opal.Expand.Common.Intern
     Opal.Expand.Common.Intern.Monad
+    Opal.Expand.Resolve
     Opal.Expand.Syntax
     Opal.Expand.Syntax.Binding
     Opal.Expand.Syntax.BindStore
@@ -126,6 +130,10 @@ executable opal
   build-depends:  
     , opal
     , parsel
+
+  other-modules:
+    Opal.Run.Command
+    Opal.Run.Parse
 
 -- test-suite test
 --   import:         common

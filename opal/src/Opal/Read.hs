@@ -142,7 +142,7 @@ rStxPrimUnsyntax = do
 rStxAtom :: Parse Syntax
 rStxAtom = do
   srcloc <- Parsel.location
-  symbol <- some (foldr ((<|>) . Parsel.char) Parsel.alphaNum "-/!")
+  symbol <- some (foldr ((<|>) . Parsel.char) Parsel.alphaNum "-/!+-<>=*")
   many Parsel.whitespace
   pure (makeStxAtom srcloc symbol)
 

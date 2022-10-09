@@ -4,7 +4,7 @@
 
 module Opal.Evaluate
   ( -- * Evaluation
-    evaluate,
+    runKernalEval,
 
     -- * Eval Monad
     EvalIO,
@@ -52,9 +52,10 @@ import Opal.Common.Name (Name)
 import Opal.Common.Symbol qualified as Symbol
 
 import Opal.Core
-  ( Datum (DatumList, DatumPrim, DatumProc, DatumStx),
+  ( Clause,
+    Datum (DatumCase, DatumList, DatumPrim, DatumProc, DatumStx),
     Expr,
-    Prim (PrimMakeStx, PrimSetMut, PrimStxExpr),
+    Prim (PrimClauseDef, PrimMakeStx, PrimSetMut, PrimStxExpr, PrimVoid),
     SExp (SExpApp, SExpVal, SExpVar),
     primMakeStx,
     primStxExpr,
@@ -62,6 +63,7 @@ import Opal.Core
     toSymbol,
     toSyntax,
   )
+import Opal.Core qualified as Core
 
 import Opal.Expand.Syntax.BindStore (BindStore)
 import Opal.Expand.Syntax.BindStore qualified as BindStore
@@ -69,16 +71,17 @@ import Opal.Expand.Syntax.MultiScopeSet (Phase (Phase))
 import Opal.Expand.Syntax.ScopeSet (ScopeId, ScopeSet)
 import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
 import Opal.Expand.Transform (Transform)
+import qualified Debug.Trace as Debug
 
 -- Evaluation ------------------------------------------------------------------
 
 -- | TODO
 --
 -- @since 1.0.0
-evaluate :: Expr -> Either EvalExn Datum
-evaluate expr = runST do
+runKernalEval :: Expr -> Either EvalExn Datum
+runKernalEval expr = runST do
   let ctx = EvalCtx (Phase 0) Nothing Map.empty Map.empty
-  let env = EvalStore BindStore.empty ScopeSet.empty ScopeSet.empty
+  let env = EvalStore BindStore.coreSyntax ScopeSet.empty ScopeSet.empty
   (_, result) <- runEvalST ctx env (eval expr)
   pure result
 
@@ -87,7 +90,11 @@ evaluate expr = runST do
 -- | TODO
 --
 -- @since 1.0.0
-runEvalIO :: EvalCtx RealWorld -> EvalStore -> EvalIO a -> IO (EvalStore, a)
+runEvalIO ::
+  EvalCtx RealWorld ->
+  EvalStore ->
+  EvalIO a ->
+  IO (EvalStore, a)
 runEvalIO ctx env0 evalM =
   primitive \st0# ->
     case unEval evalM ctx env0 st0# of
@@ -103,7 +110,11 @@ type EvalIO = Eval RealWorld
 -- | TODO
 --
 -- @since 1.0.0
-runEvalST :: EvalCtx s -> EvalStore -> Eval s a -> ST s (EvalStore, Either EvalExn a)
+runEvalST ::
+  EvalCtx s ->
+  EvalStore ->
+  Eval s a ->
+  ST s (EvalStore, Either EvalExn a)
 runEvalST ctx env0 evalM =
   primitive \st0# ->
     case unEval evalM ctx env0 st0# of
@@ -236,7 +247,12 @@ data EvalCtx s = EvalCtx
 -- | TODO
 --
 -- @since 1.0.0
-extEvalEnv :: PrimMonad m => Name -> Datum -> EvalCtx (PrimState m) -> m (EvalCtx (PrimState m))
+extEvalEnv ::
+  PrimMonad m =>
+  Name ->
+  Datum ->
+  EvalCtx (PrimState m) ->
+  m (EvalCtx (PrimState m))
 extEvalEnv name val ctx = do
   let valEnv = value'env ctx
   case Map.lookup name valEnv of
@@ -251,7 +267,12 @@ extEvalEnv name val ctx = do
 -- | TODO
 --
 -- @since 1.0.0
-extsEvalEnv :: PrimMonad m => [Name] -> [Datum] -> EvalCtx (PrimState m) -> m (EvalCtx (PrimState m))
+extsEvalEnv ::
+  PrimMonad m =>
+  [Name] ->
+  [Datum] ->
+  EvalCtx (PrimState m) ->
+  m (EvalCtx (PrimState m))
 extsEvalEnv [] _ ctx = pure ctx
 extsEvalEnv _ [] ctx = pure ctx
 extsEvalEnv (name : names) (val : vals) ctx = do
@@ -279,10 +300,35 @@ data EvalStore = EvalStore
 --
 -- @since 1.0.0
 eval :: Expr -> Eval s Datum
-eval (SExpVal val) = pure val
+eval (SExpVal dtm) = evalDatum dtm
 eval (SExpVar var) = getVariable var
 eval (SExpApp fun args) = evalCall fun args
 {-# INLINE eval #-}
+
+-- | TODO
+--
+-- @since 1.0.0
+evalDatum :: Datum -> Eval s Datum
+evalDatum (DatumCase scrut clauses) = do
+  val <- eval scrut
+  evalCase val clauses
+evalDatum dtm = pure dtm
+
+-- | TODO
+--
+-- @since 1.0.0
+evalCase :: Datum -> [Clause] -> Eval s Datum
+evalCase _ [] = pure (DatumPrim PrimVoid)
+evalCase val (clause : rest) = do
+  case clause.datum of
+    DatumPrim PrimClauseDef -> do
+      eval clause.body
+    DatumList pats -> do  
+      let !_ = Debug.trace (show pats) ()
+      if any (val ==) pats
+        then eval clause.body
+        else evalCase val rest
+    other -> undefined
 
 -- | TODO
 --
@@ -334,17 +380,17 @@ evalCallPrim :: Prim -> [Expr] -> Eval s Datum
 evalCallPrim prim args = do
   checkPrimArity prim args
   case prim of
-    PrimStxExpr -> do
-      val <- eval (args List.!! 0)
-      case toSyntax val of
-        Nothing -> throwError (EvalExnCallPrim prim [val])
-        Just stx -> pure (primStxExpr stx)
     PrimMakeStx -> do
       val1 <- eval (args List.!! 0)
       val2 <- eval (args List.!! 1)
       case liftA2 (,) (toAtom val1) (toSyntax val2) of
         Nothing -> throwError (EvalExnCallPrim prim [val1, val2])
         Just (atom, stx) -> pure (DatumStx (primMakeStx atom stx))
+    PrimStxExpr -> do
+      val <- eval (args List.!! 0)
+      case toSyntax val of
+        Nothing -> throwError (EvalExnCallPrim prim [val])
+        Just stx -> pure (primStxExpr stx)
     PrimSetMut -> do
       val1 <- eval (args List.!! 0)
       val2 <- eval (args List.!! 1)
@@ -354,6 +400,9 @@ evalCallPrim prim args = do
           mut <- getMutRef (Symbol.toName symbol)
           writeMutVar mut val1
           pure (DatumList [])
+    _ -> do
+      let expr = SExpApp (SExpVal $ DatumPrim prim) args
+      throwError (EvalExnCallLit expr)
 {-# INLINE evalCallPrim #-}
 
 -- | TODO
@@ -368,6 +417,7 @@ checkPrimArity prim args =
       PrimStxExpr -> 1
       PrimMakeStx -> 2
       PrimSetMut -> 2
+      _ -> undefined
 {-# INLINE checkPrimArity #-}
 
 -- | TODO
@@ -387,6 +437,6 @@ getMutRef name = do
     Nothing -> do
       valEnv' <- traverse readMutVar valEnv
       throwError (EvalExnUnbound name valEnv')
-    Just mut -> 
+    Just mut ->
       pure mut
 {-# INLINE getMutRef #-}

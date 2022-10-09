@@ -2,7 +2,7 @@ module Opal.Common.GenSym
   ( -- * TODO
     GenSym (GenSym, base, uuid),
     makeGenSym,
-    
+
     -- * Conversion
     toName,
     toSymbol,
@@ -81,8 +81,12 @@ toSymbol gensym = Symbol.pack (show gensym.base ++ show gensym.uuid)
 -- @since 1.0.0
 class Monad m => MonadGenSym m where
   newGenSym :: m GenSym
+  newGenSym = newGenSymWith defaultSymbol
+  {-# INLINE newGenSym #-}
 
   newGenSymWith :: Symbol -> m GenSym
+
+  {-# MINIMAL newGenSymWith #-}
 
 --------------------------------------------------------------------------------
 

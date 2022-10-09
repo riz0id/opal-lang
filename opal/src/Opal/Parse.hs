@@ -1,14 +1,22 @@
 {-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Opal.Parse
   ( -- * TODO
     Parse,
+    evalParseExpr,
+    runParseExpr,
     runParse,
 
     -- ** TODO
-    ParseError (ExnMissingProc),
+    ParseError (ExnMissingProc, ExnParseLambda, ExnParseCase, ExnParseClause),
+
+    -- * TODO
+    pStxLambda,
+    pStxFormals,
+    pStxFormalIdts,
   )
 where
 
@@ -16,47 +24,59 @@ import Control.Monad.Except (MonadError, catchError, throwError)
 import Control.Monad.Reader (MonadReader, ask, asks, local)
 
 import Data.List qualified as List
-import Data.Map qualified as Map
-import Data.Set (Set)
-import Data.Set qualified as Set
 import Data.Traversable (for)
 
 import Prelude hiding (exp)
 
 --------------------------------------------------------------------------------
 
+import Opal.Common.Name (Name)
 import Opal.Common.Symbol (Symbol)
 import Opal.Common.Symbol qualified as Symbol
 
 import Opal.Core
-  ( Datum (DatumPrim, DatumProc, DatumStx),
+  ( Datum (DatumList, DatumPrim, DatumProc, DatumStx, DatumAtom),
     Expr,
     SExp (SExpApp, SExpVal, SExpVar),
     syntaxToDatum,
   )
-import Opal.Core.Prim (Prim (PrimLambda, PrimQuote, PrimSyntax))
+import Opal.Core qualified as Core
+import Opal.Core.Datum (Clause (Clause), Datum (DatumCase), Procedure (Procedure))
+import Opal.Core.Prim (Prim (PrimCase, PrimLambda, PrimQuote, PrimSyntax, PrimClauseDef))
 
-import Opal.Expand.Syntax (StxCtx (multiscope), Syntax (StxAtom, StxList))
+import Opal.Expand.Resolve qualified as Resolve
+import Opal.Expand.Syntax (StxCtx, StxIdt (StxIdt), Syntax (StxAtom, StxList))
+import Opal.Expand.Syntax qualified as Syntax
 import Opal.Expand.Syntax.BindStore (BindStore)
 import Opal.Expand.Syntax.BindStore qualified as BindStore
-import Opal.Expand.Syntax.Binding
-  ( Binder (BindName, BindPrim),
-    Binding (Binding, binder),
-  )
+import Opal.Expand.Syntax.Binding (Binder (BindName, BindPrim))
 import Opal.Expand.Syntax.Binding qualified as Binding
-import Opal.Expand.Syntax.MultiScopeSet (Phase)
-import Opal.Expand.Syntax.MultiScopeSet qualified as MultiScopeSet
-import Opal.Expand.Syntax.ScopeSet (ScopeSet)
-import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
+import Opal.Expand.Syntax.MultiScopeSet (Phase (Phase))
+import Opal.Expand.Syntax.ScopeSet (ScopeId (ScopeId))
 
 -- TODO ------------------------------------------------------------------------
 
 -- | TODO
 --
 -- @since 1.0.0
-runParse :: Phase -> BindStore -> Syntax -> Either ParseError Expr
-runParse ph store stx =
-  case unP (pSyntax ph stx) store of
+evalParseExpr :: Syntax -> Either ParseError Expr
+evalParseExpr stx =
+  runParse (Phase 0) BindStore.coreSyntax do
+    pSyntax (Syntax.scope (Phase 0) (ScopeId 0) stx)
+
+-- | TODO
+--
+-- @since 1.0.0
+runParseExpr :: Phase -> BindStore -> Syntax -> Either ParseError Expr
+runParseExpr ph store stx = runParse ph store (pSyntax stx)
+{-# INLINE runParseExpr #-}
+
+-- | TODO
+--
+-- @since 1.0.0
+runParse :: Phase -> BindStore -> Parse a -> Either ParseError a
+runParse ph store parser =
+  case unP parser (ParseCtx ph store) of
     (# exn | #) -> Left exn
     (# | exp #) -> Right exp
 {-# INLINE runParse #-}
@@ -65,7 +85,7 @@ runParse ph store stx =
 --
 -- @since 1.0.0
 newtype Parse a = Parse
-  {unP :: BindStore -> (# ParseError| a #)}
+  {unP :: ParseCtx -> (# ParseError| a #)}
 
 -- | @since 1.0.0
 instance Functor Parse where
@@ -108,7 +128,7 @@ instance MonadError ParseError Parse where
   {-# INLINE catchError #-}
 
 -- | @since 1.0.0
-instance MonadReader BindStore Parse where
+instance MonadReader ParseCtx Parse where
   ask = Parse \s -> (# | s #)
   {-# INLINE ask #-}
 
@@ -123,6 +143,10 @@ data ParseError
   | -- | TODO
     ExnParseLambda [Syntax]
   | -- | TODO
+    ExnParseCase [Syntax]
+  | -- | TODO
+    ExnParseClause Syntax
+  | -- | TODO
     ExnParseSyntax [Syntax]
   | -- | TODO
     ExnParseQuote [Syntax]
@@ -133,44 +157,45 @@ data ParseError
 -- | TODO
 --
 -- @since 1.0.0
-resolve :: Phase -> StxCtx -> Symbol -> Parse Binder
-resolve ph ctx symbol = do
-  let name = Symbol.toName symbol
-  result <- asks (BindStore.indexBindings name)
-  case result of
-    Nothing -> pure (BindName name)
-    Just binds -> do
-      let canidates = Map.foldrWithKey filterCanidates Set.empty binds
-      let bindings = Binding.maximum canidates
-      case Set.maxView bindings of
-        Nothing -> pure (BindName $ Symbol.toName symbol)
-        Just (bind, _) -> pure bind.binder
-  where
-    refScopes :: ScopeSet
-    refScopes = MultiScopeSet.index ph ctx.multiscope
-
-    filterCanidates :: ScopeSet -> Binder -> Set Binding -> Set Binding
-    filterCanidates set bind canidates
-      | ScopeSet.subset set refScopes = Set.insert (Binding set bind) canidates
-      | otherwise = canidates
+data ParseCtx = ParseCtx
+  { phase :: {-# UNPACK #-} !Phase
+  , bindstore :: BindStore
+  }
+  deriving (Eq, Ord, Show)
 
 -- TODO ------------------------------------------------------------------------
 
 -- | TODO
 --
 -- @since 1.0.0
-pSyntax :: Phase -> Syntax -> Parse Expr
-pSyntax ph (StxAtom ctx atom) = pStxAtom ph ctx atom
-pSyntax ph (StxList ctx stxs)
-  | null stxs = throwError (ExnMissingProc (StxList ctx stxs))
-  | otherwise = pStxList ph (head stxs) (tail stxs)
+resolve :: StxCtx -> Symbol -> Parse Binder
+resolve ctx symbol = do
+  ph <- asks phase
+  store <- asks bindstore
+  -- TODO: Document why errors are ignore for parsing
+  let idt :: StxIdt
+      idt = StxIdt ctx symbol
+   in case Resolve.runResolveId ph idt store of
+        Left {} -> pure (BindName $ Symbol.toName symbol)
+        Right binding -> pure binding.binder
+
+-- TODO ------------------------------------------------------------------------
 
 -- | TODO
 --
 -- @since 1.0.0
-pStxAtom :: Phase -> StxCtx -> Symbol -> Parse Expr
-pStxAtom ph ctx atom = do
-  bind <- resolve ph ctx atom
+pSyntax :: Syntax -> Parse Expr
+pSyntax (StxAtom ctx atom) = pStxAtom ctx atom
+pSyntax (StxList ctx stxs)
+  | null stxs = throwError (ExnMissingProc (StxList ctx stxs))
+  | otherwise = pStxList (head stxs) (tail stxs)
+
+-- | TODO
+--
+-- @since 1.0.0
+pStxAtom :: StxCtx -> Symbol -> Parse Expr
+pStxAtom ctx atom = do
+  bind <- resolve ctx atom
   case bind of
     BindPrim prim -> pure (SExpVal $ DatumPrim prim)
     BindName name -> pure (SExpVar name)
@@ -178,58 +203,117 @@ pStxAtom ph ctx atom = do
 -- | TODO
 --
 -- @since 1.0.0
-pStxList :: Phase -> Syntax -> [Syntax] -> Parse Expr
-pStxList ph (StxAtom ctx atom) stxs = do
-  bind <- resolve ph ctx atom
+pStxList :: Syntax -> [Syntax] -> Parse Expr
+pStxList (StxAtom ctx atom) stxs = do
+  bind <- resolve ctx atom
   case bind of
-    BindPrim PrimLambda -> pStxLambda ph stxs
-    BindPrim PrimSyntax -> pStxSyntax ph stxs
-    BindPrim PrimQuote -> pStxQuote ph stxs
+    BindPrim PrimCase -> do
+      match <- pStxCase stxs
+      pure (SExpVal match)
+    BindPrim PrimLambda -> do
+      func <- pStxLambda stxs
+      pure (SExpVal $ DatumProc func.formals func.body)
+    BindPrim PrimSyntax -> pStxSyntax stxs
+    BindPrim PrimQuote -> pStxQuote stxs
     BindPrim prim -> do
       let func = SExpVal (DatumPrim prim)
-      args <- traverse (pSyntax ph) stxs
+      args <- traverse pSyntax stxs
       pure (SExpApp func args)
     BindName name -> do
       let func = SExpVar name
-      args <- traverse (pSyntax ph) stxs
+      args <- traverse pSyntax stxs
       pure (SExpApp func args)
-pStxList ph (StxList ctx stx) stxs = do
-  func <- pSyntax ph (StxList ctx stx)
-  args <- traverse (pSyntax ph) stxs
+pStxList (StxList ctx stx) stxs = do
+  func <- pSyntax (StxList ctx stx)
+  args <- traverse pSyntax stxs
   pure (SExpApp func args)
 
 -- | TODO
 --
 -- @since 1.0.0
-pStxLambda :: Phase -> [Syntax] -> Parse Expr
-pStxLambda ph stxs
+pStxLambda :: [Syntax] -> Parse Procedure
+pStxLambda stxs
   | length stxs /= 2 = do
       let exn = ExnParseLambda stxs
       throwError exn
   | otherwise = do
-      vars <- case stxs List.!! 0 of
-        StxAtom _ atom -> pure [Symbol.toName atom]
-        StxList _ vars ->
-          for vars \case
-            StxAtom _ var -> pure (Symbol.toName var)
-            StxList {} -> throwError (ExnParseLambda stxs)
-
-      body <- pSyntax ph (stxs List.!! 1)
-
-      pure (SExpVal $ DatumProc vars body)
+      vars <- pStxFormals (stxs List.!! 0)
+      body <- pSyntax (stxs List.!! 1)
+      pure (Procedure vars body)
 
 -- | TODO
 --
 -- @since 1.0.0
-pStxSyntax :: Phase -> [Syntax] -> Parse Expr
-pStxSyntax _ stxs
+pStxFormals :: Syntax -> Parse [Name]
+pStxFormals stx = do
+  idts <- pStxFormalIdts stx
+  pure (map (Symbol.toName . Syntax.symbol) idts)
+
+-- | TODO
+--
+-- @since 1.0.0
+pStxFormalIdts :: Syntax -> Parse [StxIdt]
+pStxFormalIdts (StxAtom ctx atom) = pure [StxIdt ctx atom]
+pStxFormalIdts (StxList ctx vars) = do
+  for vars \case
+    StxAtom ctx' atom -> pure (StxIdt ctx' atom)
+    StxList {} -> throwError (ExnParseLambda $ [StxList ctx vars])
+
+-- | TODO
+--
+-- @since 1.0.0
+pStxCase :: [Syntax] -> Parse Datum
+pStxCase stxs
+  | length stxs < 1 = throwError (ExnParseCase stxs)
+  | otherwise = do
+      scrut <- pSyntax (head stxs)
+      cases <- traverse pStxClause (tail stxs)
+      pure (DatumCase scrut cases)
+
+-- | TODO
+--
+-- @since 1.0.0
+pStxClause :: Syntax -> Parse Clause
+pStxClause (StxList _ [StxAtom ctx atom, stx]) = do
+  bind <- resolve ctx atom
+  if bind == BindPrim PrimClauseDef
+    then do
+      let pat = DatumPrim PrimClauseDef
+      body <- pSyntax stx
+      pure (Clause pat body)
+    else throwError (ExnParseClause $ StxAtom ctx atom)
+pStxClause (StxList _ [StxList _ stx1, stx2]) = do
+  pats <- traverse pStxPattern stx1 
+  body <- pSyntax stx2
+  pure (Clause (DatumList pats) body)
+pStxClause stx =
+  throwError (ExnParseClause $ stx)
+
+-- | TODO
+--
+-- @since 1.0.0
+pStxPattern :: Syntax -> Parse Datum 
+pStxPattern (StxAtom ctx atom) = do 
+  bind <- resolve ctx atom 
+  case bind of 
+    BindPrim prim -> pure (DatumPrim prim)
+    BindName name -> pure (DatumAtom $ Symbol.Symbol name)
+pStxPattern (StxList _ stxs) = do 
+  dtms <- traverse pStxPattern stxs
+  pure (DatumList dtms)
+
+-- | TODO
+--
+-- @since 1.0.0
+pStxSyntax :: [Syntax] -> Parse Expr
+pStxSyntax stxs
   | length stxs /= 1 = throwError (ExnParseSyntax stxs)
   | otherwise = pure (SExpVal $ DatumStx $ stxs List.!! 0)
 
 -- | TODO
 --
 -- @since 1.0.0
-pStxQuote :: Phase -> [Syntax] -> Parse Expr
-pStxQuote _ stxs
+pStxQuote :: [Syntax] -> Parse Expr
+pStxQuote stxs
   | length stxs /= 1 = throwError (ExnParseQuote stxs)
   | otherwise = pure (SExpVal $ syntaxToDatum $ stxs List.!! 0)

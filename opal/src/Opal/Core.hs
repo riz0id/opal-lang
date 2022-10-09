@@ -11,7 +11,7 @@ module Opal.Core
     toVarRef,
 
     -- * Datums
-    Datum (DatumStx, DatumAtom, DatumProc, DatumPrim, DatumList),
+    Datum (DatumCase, DatumStx, DatumAtom, DatumProc, DatumPrim, DatumList),
 
     -- ** Construction
     atomToDatum,
@@ -22,11 +22,27 @@ module Opal.Core
     toAtom,
     toSymbol,
 
+    -- * Procedures
+    Procedure (Procedure, formals, body),
+
+    -- * Procedures
+    Clause (Clause, datum, body),
+
     -- * Atoms
     Atom (Atom, Prim),
 
     -- * Primitives
-    Prim (PrimStxExpr, PrimMakeStx, PrimSetMut),
+    Prim
+      ( PrimBoolFalse,
+        PrimBoolTrue,
+        PrimCase,
+        PrimClauseDef,
+        PrimStxExpr,
+        PrimMakeStx,
+        PrimSetMut,
+        PrimLambda,
+        PrimVoid
+      ),
     primToSymbol,
 
     -- ** Primitive Operations
@@ -43,14 +59,29 @@ import Opal.Common.Name (Name)
 
 import Opal.Core.Atom (Atom (Atom, Prim))
 import Opal.Core.Datum
-  ( Datum (DatumAtom, DatumList, DatumPrim, DatumProc, DatumStx),
+  ( Clause (Clause, body, datum),
+    Datum (DatumAtom, DatumCase, DatumList, DatumPrim, DatumProc, DatumStx),
+    Procedure (Procedure, body, formals),
     atomToDatum,
     syntaxToDatum,
     toAtom,
     toSymbol,
     toSyntax,
   )
-import Opal.Core.Prim (Prim (PrimMakeStx, PrimSetMut, PrimStxExpr), primToSymbol)
+import Opal.Core.Prim
+  ( Prim
+      ( PrimBoolFalse,
+        PrimBoolTrue,
+        PrimCase,
+        PrimClauseDef,
+        PrimLambda,
+        PrimMakeStx,
+        PrimSetMut,
+        PrimStxExpr,
+        PrimVoid
+      ),
+    primToSymbol,
+  )
 import Opal.Core.SExp (SExp (SExpApp, SExpVal, SExpVar))
 
 import Opal.Expand.Syntax (Syntax (StxAtom, StxList, context))

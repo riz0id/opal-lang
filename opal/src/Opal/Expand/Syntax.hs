@@ -12,6 +12,10 @@ module Opal.Expand.Syntax
     flips,
     prune,
 
+    -- * StxIdt
+    StxIdt (StxIdt, context, symbol),
+    scopeIdt,
+    
     -- * StxCtx
     StxCtx (StxCtx, location, length, multiscope),
   )
@@ -65,7 +69,7 @@ pattern StxList ctx stxs = Syntax (Right stxs) ctx
 
 -- Syntax - Scopes -------------------------------------------------------------
 
--- | Extend the syntax object's scopes by the given scope at a particular phase.
+-- | TODO 
 --
 -- @since 1.0.0
 scope :: Phase -> ScopeId -> Syntax -> Syntax
@@ -78,18 +82,48 @@ scope ph sc (StxList ctx stxs) =
       ctx' = adjust ph (ScopeSet.insert sc) ctx 
    in StxList ctx' (map (scope ph sc) stxs)
 
--- | Flip the syntax object's scopes by the given scope at a particular phase.
+-- | TODO 
 --
 -- @since 1.0.0
 flips :: Phase -> ScopeId -> Syntax -> Syntax
-flips ph sc stx = stx {context = adjust ph (ScopeSet.flips sc) stx.context}
+flips ph sc (StxAtom ctx atom) = 
+  let ctx' :: StxCtx 
+      ctx' = adjust ph (ScopeSet.flips sc) ctx 
+   in StxAtom ctx' atom 
+flips ph sc (StxList ctx stxs) = 
+  let ctx' :: StxCtx 
+      ctx' = adjust ph (ScopeSet.flips sc) ctx 
+   in StxList ctx' (map (flips ph sc) stxs)
 
--- | Prunes the set of scopes from the syntax object's scopes at a particular 
--- phase.
+-- | TODO
 --
 -- @since 1.0.0
 prune :: Phase -> ScopeSet -> Syntax -> Syntax
-prune ph sc stx = stx {context = adjust ph (`ScopeSet.difference` sc) stx.context}
+prune ph sc (StxAtom ctx atom) = 
+  let ctx' :: StxCtx 
+      ctx' = adjust ph (`ScopeSet.difference` sc) ctx
+   in StxAtom ctx' atom 
+prune ph sc (StxList ctx stxs) = 
+  let ctx' :: StxCtx 
+      ctx' = adjust ph (`ScopeSet.difference` sc) ctx 
+   in StxList ctx' (map (prune ph sc) stxs)
+
+-- StxCtx ----------------------------------------------------------------------
+
+-- | TODO
+--
+-- @since 1.0.0
+data StxIdt = StxIdt 
+  { context :: {-# UNPACK #-} !StxCtx
+  , symbol :: {-# UNPACK #-} !Symbol
+  }
+  deriving (Data, Eq, Ord, Show)
+
+-- | TODO
+--
+-- @since 1.0.0
+scopeIdt :: Phase -> ScopeId -> StxIdt -> StxIdt 
+scopeIdt ph sc (StxIdt ctx sym) = StxIdt (adjust ph (ScopeSet.insert sc) ctx) sym
 
 -- StxCtx ----------------------------------------------------------------------
 

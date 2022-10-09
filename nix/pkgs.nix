@@ -5,6 +5,9 @@ let
 in import nixpkgs {
   config.packageOverrides = pkgs: 
     pkgs.lib.composeManyExtensions [  
+      (import extensions/emit.nix {
+        inherit ghc;
+      })
       (import extensions/opal.nix {
         inherit ghc;
       })

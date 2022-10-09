@@ -19,7 +19,7 @@ import Data.Data (Data)
 
 import Opal.Core.Datum (Datum)
 
-import Opal.Expand.Syntax (Syntax)
+import Opal.Expand.Syntax (StxIdt)
 
 -- Transformers ----------------------------------------------------------------
 
@@ -31,7 +31,7 @@ data Transform
   | TfmLetSyntax
   | TfmQuote
   | TfmSyntax
-  | TfmVar {-# UNPACK #-} !Syntax
+  | TfmVar {-# UNPACK #-} !StxIdt
   | TfmDatum Datum
   | TfmStop Transform
   deriving (Data, Eq, Ord, Show)

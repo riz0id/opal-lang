@@ -1,6 +1,8 @@
+{-# LANGUAGE DuplicateRecordFields #-}
+
 module Opal.Core.Datum 
   ( -- * Datums
-    Datum (DatumStx, DatumAtom, DatumProc, DatumPrim, DatumList),
+    Datum (DatumStx, DatumAtom, DatumProc, DatumCase, DatumPrim, DatumList),
 
     -- * Construction
     atomToDatum,
@@ -10,6 +12,12 @@ module Opal.Core.Datum
     toSyntax,
     toAtom,
     toSymbol,
+
+    -- * Procedures 
+    Procedure (Procedure, formals, body),
+
+    -- * Case Clauses
+    Clause (Clause, datum, body),
   )  
 where
 
@@ -36,6 +44,7 @@ data Datum
   | DatumAtom {-# UNPACK #-} !Symbol
   | DatumPrim Prim
   | DatumProc [Name] (SExp Datum)
+  | DatumCase (SExp Datum) [Clause]
   | DatumList [Datum]
   deriving (Data, Eq, Ord, Show)
 
@@ -78,7 +87,29 @@ toAtom _ = Nothing
 --
 -- @since 1.0.0
 toSymbol :: Datum -> Maybe Symbol
-toSymbol datum = do 
-  Atom name <- toAtom datum 
+toSymbol val = do 
+  Atom name <- toAtom val
   pure name
 {-# INLINE toSymbol #-}
+
+-- Procedures ------------------------------------------------------------------
+
+-- | TODO
+--
+-- @since 1.0.0
+data Procedure = Procedure 
+  { formals :: [Name]
+  , body :: SExp Datum
+  }
+  deriving (Data, Eq, Ord, Show)
+
+-- Case Clauses ----------------------------------------------------------------
+
+-- | TODO
+--
+-- @since 1.0.0
+data Clause = Clause 
+  { datum :: Datum 
+  , body :: SExp Datum
+  }
+  deriving (Data, Eq, Ord, Show)
