@@ -27,7 +27,10 @@ import Control.Monad.State (MonadState, get, gets, modify, put, state)
 
 import Data.Data (Data)
 import Data.Map.Strict (Map)
+import Data.Traversable (for)
 import Data.Map.Strict qualified as Map
+
+import Prelude hiding (exp)
 
 --------------------------------------------------------------------------------
 
@@ -35,7 +38,7 @@ import Opal.Common.GenSym (GenSym, MonadGenSym (newGenSymWith))
 import Opal.Common.Name (Name)
 import Opal.Common.Symbol qualified as Symbol
 
-import Opal.Core.Prim (Prim (PrimBoolFalse, PrimBoolTrue, PrimLambda))
+import Opal.Core.Prim (Prim (PrimBoolFalse, PrimBoolTrue, PrimLambda, PrimSyntax, PrimLetSyntax))
 import Opal.Core.Prim qualified as Prim
 
 import Opal.Expand.Resolve (ResolveError)
@@ -56,12 +59,19 @@ import Opal.Expand.Syntax.Binding qualified as Binding
 import Opal.Expand.Syntax.MultiScopeSet (Phase (Phase))
 import Opal.Expand.Syntax.ScopeSet (ScopeId (ScopeId), ScopeSet)
 import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
-import Opal.Expand.Transform (Transform (TfmVar))
+import Opal.Expand.Transform (Transform (TfmVar, TfmDatum, TfmStop))
 
 import Opal.Common.GenSym qualified as GenSym
 import Opal.Expand.Syntax.MultiScopeSet qualified as MultiScopeSet
 import Opal.Parse (Parse, ParseError)
 import Opal.Parse qualified as Parse
+import Data.Foldable (for_)
+import Opal.Core (Expr, Datum (DatumStx), SExp (SExpApp, SExpVal))
+import qualified Opal.Evaluate as Eval
+import Opal.Evaluate (EvalCtx(EvalCtx), EvalStore (EvalStore), EvalExn)
+import Control.Monad.ST (runST)
+import qualified Debug.Trace as Debug
+import qualified Data.List as List
 
 -- Expand Monad ----------------------------------------------------------------
 
@@ -153,6 +163,7 @@ instance MonadGenSym Expand where
 data ExpandError
   = ExnResolveError ResolveError
   | ExnParseError ParseError
+  | ExnEvalError EvalExn
   deriving (Eq, Ord, Show)
 
 -- Expand Monad -Expander Contexts ---------------------------------------------
@@ -254,6 +265,18 @@ resolve idt = do
 -- | TODO
 --
 -- @since 1.0.0
+evaluate :: Expr -> Expand Datum
+evaluate exp = do 
+  ph <- asks phase 
+  ve <- asks environment 
+  env <- EvalStore <$> gets bindstore <*> gets intro'scopes <*> gets use'scopes
+  case runST (Eval.runEvalST (EvalCtx ph Nothing ve Map.empty) env (Eval.eval exp)) of 
+    (_, Left exn) -> throwError (ExnEvalError exn)
+    (_, Right dtm) -> pure dtm
+
+-- | TODO
+--
+-- @since 1.0.0
 newScopeId :: Expand ScopeId
 newScopeId = do
   state \store ->
@@ -292,6 +315,8 @@ introPrimBinds = do
   introPrimBind PrimBoolFalse
   introPrimBind PrimBoolTrue
   introPrimBind PrimLambda
+  introPrimBind PrimLetSyntax
+  introPrimBind PrimSyntax
 
 -- | TODO
 --
@@ -308,23 +333,31 @@ expandStxAtom idt = do
   bind <- resolve idt
   case bind.binder of
     BindPrim prim -> do
-      undefined
+      ph <- asks phase
+      let ctx = Syntax.makeStxCtx ph bind.scopes idt.context
+      let sym = Prim.primToSymbol prim
+      pure (StxAtom ctx sym)
     BindName name -> do
       env <- asks environment
       case Map.lookup name env of
         Nothing -> undefined
         Just (TfmVar idt') -> pure (StxAtom idt'.context idt'.symbol)
-        Just tfm -> undefined
+        Just tfm -> Debug.trace (show tfm) undefined
 
 -- | TODO
 --
 -- @since 1.0.0
 expandStxList :: StxCtx -> [Syntax] -> Expand Syntax
-expandStxList ctx [StxAtom ctx' atom, stx0, stx1] = do
+expandStxList ctx [] = pure (StxList ctx [])
+expandStxList ctx (StxAtom ctx' atom : stxs) = do
   bind <- resolve (StxIdt ctx atom)
   case bind.binder of
     BindPrim PrimLambda -> do
+      let stx0 = stxs List.!! 0
+      let stx1 = stxs List.!! 0
+
       ph <- asks phase
+
       vars <- parse (Parse.pStxFormalIdts stx0)
       scps <- replicateM (length vars) newScopeId
       gens <- traverse introBind vars
@@ -335,8 +368,49 @@ expandStxList ctx [StxAtom ctx' atom, stx0, stx1] = do
           tfms :: [(Name, Transform)]
           tfms = foldr (\(gen, idt) rest -> (GenSym.toName gen, TfmVar idt) : rest) [] (zip gens idts)
        in local (bulkExtend tfms) do
-            body <- expandSyntax stx1
+            body <- expandSyntax (foldr (Syntax.scope ph) stx1 scps)
             pure (StxList ctx [StxAtom ctx' atom, stx0, body])
+    BindPrim PrimLetSyntax -> do 
+      let stx0 = stxs List.!! 0
+      let stx1 = stxs List.!! 0
+
+      ph <- asks phase 
+
+      vars <- parse (Parse.pStxLetSyntaxBinds stx0)
+      scps <- replicateM (length vars) newScopeId
+      gens <- traverse (introBind . fst) vars
+
+      for_ (zip3 scps gens vars) \(sc, gen, (idt, _)) -> do
+        let binder = BindName (GenSym.toName gen)
+        let scopes = MultiScopeSet.index ph idt.context.multiscope 
+        let binding = Binding (ScopeSet.insert sc scopes) binder
+        modify \store -> 
+          store {bindstore = BindStore.insert (Symbol.toName idt.symbol) binding store.bindstore}
+
+      vals <- for (zip gens vars) \(gen, (_, stx)) -> do 
+        exp <- parse (Parse.pSyntax stx)
+        val <- evaluate exp
+        pure (GenSym.toName gen, TfmDatum val)
+
+      local (bulkExtend vals) do
+        expandSyntax (foldr (Syntax.scope ph) stx1 scps)
     BindPrim prim -> undefined
-    BindName name -> undefined
-expandStxList _ _ = undefined
+    BindName name -> do 
+      transformer <- asks (Map.lookup name . environment)
+      case transformer of 
+        Nothing -> undefined
+        Just (TfmDatum dtm) -> do 
+          ph <- asks phase
+
+          intro'scp <- newScopeId
+          use'scp <- newScopeId
+
+          let macapp = Syntax.flips ph intro'scp $ Syntax.scope ph use'scp $ StxList ctx (StxAtom ctx' atom : stxs)
+          result <- evaluate (SExpApp (SExpVal dtm) [SExpVal $ DatumStx macapp])
+          case result of 
+            DatumStx stx -> expandSyntax (Syntax.flips ph intro'scp stx)
+            _ -> undefined
+        Just tfm -> undefined 
+expandStxList ctx (stx : stxs) = do 
+  stxs' <- traverse expandSyntax (stx : stxs)
+  pure (StxList ctx stxs')

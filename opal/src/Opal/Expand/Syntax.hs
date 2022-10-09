@@ -18,6 +18,9 @@ module Opal.Expand.Syntax
     
     -- * StxCtx
     StxCtx (StxCtx, location, length, multiscope),
+
+    -- ** Construction 
+    makeStxCtx,
   )
 where
 
@@ -147,6 +150,14 @@ instance Show StxCtx where
       ++ shows len " "
       ++ shows sc ")"
   {-# INLINE show #-}
+
+-- StxCtx - Construction -------------------------------------------------------
+
+-- | TODO
+--
+-- @since 1.0.0
+makeStxCtx :: Phase -> ScopeSet -> StxCtx -> StxCtx 
+makeStxCtx ph scopes ctx = ctx{multiscope = MultiScopeSet.singleton ph scopes} 
 
 -- | TODO
 --

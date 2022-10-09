@@ -7,6 +7,7 @@ module Opal.Run.Parse
     -- * TODO
     pCommand,
     pCmdEval,
+    pCmdExpand,
     pCmdParse,
     pCmdRead,
     pKeyword,
@@ -22,7 +23,7 @@ import Text.Parsel qualified as Parsel
 
 --------------------------------------------------------------------------------
 
-import Opal.Run.Command (Command (CmdRead, CmdEval, CmdParse))
+import Opal.Run.Command (Command (CmdRead, CmdEval, CmdParse, CmdExpand))
 
 --------------------------------------------------------------------------------
 
@@ -30,7 +31,7 @@ import Opal.Run.Command (Command (CmdRead, CmdEval, CmdParse))
 --
 -- @since 1.0.0
 pCommand :: Parse Command
-pCommand = Parsel.choice [pCmdEval, pCmdParse, pCmdRead]
+pCommand = Parsel.choice [pCmdEval, pCmdExpand, pCmdParse, pCmdRead]
 
 -- | TODO
 --
@@ -40,6 +41,15 @@ pCmdEval = do
   pKeyword "eval"
   filepaths <- many pFilePath
   pure (CmdEval filepaths)
+
+-- | TODO
+--
+-- @since 1.0.0
+pCmdExpand :: Parse Command
+pCmdExpand = do
+  pKeyword "expand"
+  filepaths <- many pFilePath
+  pure (CmdExpand filepaths)
 
 -- | TODO
 --

@@ -1,9 +1,13 @@
 
+(let-syntax 
+  [(stx-const-true (lambda (stx) (syntax #t)))]
+  (stx-const-true #f))
+
+((lambda (x y) x) (syntax #t) #f)
+
 (lambda (x) 
   (case x [(#t) #f] 
           [(#f) #t]))
-
-((lambda (x y) x) #t #f)
 
 (lambda (n) 
   (if (<= 0 n) 

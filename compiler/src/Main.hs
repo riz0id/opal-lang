@@ -23,9 +23,10 @@ import Opal.Print qualified as Print
 import Opal.Read qualified as Read
 
 import Opal.Parse qualified as Parse
-import Opal.Run.Command (Command (CmdEval, CmdParse, CmdRead))
+import Opal.Run.Command (Command (CmdEval, CmdParse, CmdRead, CmdExpand))
 import Opal.Run.Parse qualified as Parse
 import qualified Opal.Evaluate as Eval
+import qualified Opal.Expand as Expand
 
 --------------------------------------------------------------------------------
 
@@ -39,6 +40,12 @@ main = do
         value <- evalOpalIO source
         IO.hPutStrLn IO.stdout (filepath ++ ": evaluated expression: ")
         Text.IO.hPutStrLn IO.stdout (Print.pprDatum value)
+    CmdExpand filepaths ->
+      for_ filepaths \filepath -> do
+        source <- getOpalFileIO filepath
+        sexp <- expandOpalIO source
+        IO.hPutStrLn IO.stdout (filepath ++ ": expanded expression: ")
+        Text.IO.hPutStrLn IO.stdout (Print.pprSExp sexp)
     CmdParse filepaths ->
       for_ filepaths \filepath -> do
         source <- getOpalFileIO filepath
@@ -59,12 +66,22 @@ evalOpalIO source = do
     Left exn -> throwIO (ErrorCall $ show exn)
     Right val -> pure val
 
+expandOpalIO :: String -> IO Expr
+expandOpalIO source = do 
+  stx <- readOpalIO source 
+  case Expand.runExpandSyntax stx of 
+    Left exn -> throwIO (ErrorCall $ show exn)
+    Right stx' ->
+      case Parse.evalParseExpr stx' of
+        Left exn -> throwIO (ErrorCall $ show exn)
+        Right sexp -> pure sexp
+
 parseOpalIO :: String -> IO Expr
 parseOpalIO source = do
   syntax <- readOpalIO source
   case Parse.evalParseExpr syntax of
     Left exn -> throwIO (ErrorCall $ show exn)
-    Right stx -> pure stx
+    Right sexp -> pure sexp
 
 readOpalIO :: String -> IO Syntax
 readOpalIO source =
