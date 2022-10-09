@@ -1,6 +1,6 @@
 
 (let-syntax 
-  [(stx-const-true (lambda (stx) (syntax #t)))]
+  [(stx-const-true (lambda (stx) #'#t))]
   (stx-const-true #f))
 
 ((lambda (x y) x) (syntax #t) #f)

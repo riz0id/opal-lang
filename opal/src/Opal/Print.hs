@@ -48,6 +48,7 @@ import Opal.Core.Prim qualified as Prim
 
 import Opal.Expand.Syntax (StxCtx, Syntax (StxAtom, StxList))
 import Opal.Expand.Syntax qualified as Syntax
+import Opal.Core.Prim (Prim(PrimLetSyntax))
 
 -- TODO ------------------------------------------------------------------------
 

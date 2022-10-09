@@ -43,9 +43,9 @@ main = do
     CmdExpand filepaths ->
       for_ filepaths \filepath -> do
         source <- getOpalFileIO filepath
-        sexp <- expandOpalIO source
+        stx <- expandOpalIO source
         IO.hPutStrLn IO.stdout (filepath ++ ": expanded expression: ")
-        Text.IO.hPutStrLn IO.stdout (Print.pprSExp sexp)
+        Text.IO.hPutStrLn IO.stdout (Print.pprSyntax stx)
     CmdParse filepaths ->
       for_ filepaths \filepath -> do
         source <- getOpalFileIO filepath
@@ -66,15 +66,12 @@ evalOpalIO source = do
     Left exn -> throwIO (ErrorCall $ show exn)
     Right val -> pure val
 
-expandOpalIO :: String -> IO Expr
+expandOpalIO :: String -> IO Syntax
 expandOpalIO source = do 
   stx <- readOpalIO source 
   case Expand.runExpandSyntax stx of 
     Left exn -> throwIO (ErrorCall $ show exn)
-    Right stx' ->
-      case Parse.evalParseExpr stx' of
-        Left exn -> throwIO (ErrorCall $ show exn)
-        Right sexp -> pure sexp
+    Right stx' -> pure stx'
 
 parseOpalIO :: String -> IO Expr
 parseOpalIO source = do
