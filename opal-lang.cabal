@@ -82,7 +82,6 @@ library
     -dppr-cols=120
     -dsuppress-module-prefixes
     -dsuppress-uniques
-    -dyno
 
   build-depends:
     , containers

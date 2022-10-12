@@ -11,8 +11,7 @@
 --
 -- @since 1.0.0
 module Opal.Common.Symbol
-  ( -- * TODO
-    Symbol (Symbol),
+  ( Symbol (Symbol),
 
     -- * Conversion
     pack,
