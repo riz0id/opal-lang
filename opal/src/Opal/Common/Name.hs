@@ -1,14 +1,28 @@
+-- |
+-- Module      :  Opal.Common.Name
+-- Copyright   :  (c) Jacob Leach, 2022
+-- License     :  ISC, see LICENSE
+--
+-- Maintainer  :  jacobleach@protonmail.com
+-- Stability   :  stable
+-- Portability :  non-portable (GHC extensions)
+--
+-- TODO
+--
+-- @since 1.0.0
 module Opal.Common.Name
-  ( -- * TODO
-    Name (Name),
+  ( Name (Name),
 
-    -- * Construction
+    -- * Conversion
     pack,
     unpack,
 
     -- * Query
     size,
     ptr,
+
+    -- * Comparison
+    equiv,
   )
 where
 
@@ -30,6 +44,9 @@ import Text.Emit qualified as Emit
 
 --------------------------------------------------------------------------------
 
+-- | 'Name' represents a symbollic name.
+--
+-- @since 1.0.0
 data Name :: Type where
   Name :: ByteArray# -> Name
 
@@ -41,7 +58,7 @@ instance Data Name where
   gunfold _ _ = error "gunfold on type Name"
   {-# INLINE CONLIKE gunfold #-}
 
-  dataTypeOf _ = mkNoRepType "Opal.Name"
+  dataTypeOf _ = mkNoRepType "Opal.Common.Name"
   {-# INLINE CONLIKE dataTypeOf #-}
 
 -- | @since 1.0.0
@@ -69,22 +86,43 @@ instance IsString Name where
   fromString = pack
   {-# INLINE fromString #-}
 
--- Construction ----------------------------------------------------------------
+-- Conversion ------------------------------------------------------------------
 
+-- | \(\mathcal{O}(n)\). Packs the contents of a 'String' into a 'Name'.
+--
+-- @since 1.0.0
 pack :: String -> Name
 pack str = Name (ByteArray.pack# (map (fromIntegral . fromEnum) str))
 {-# INLINE pack #-}
 
+-- | \(\mathcal{O}(n)\). Unpacks the contents of a 'Name' as a 'String'.
+--
+-- @since 1.0.0
 unpack :: Name -> String
 unpack (Name xs#) = map (toEnum . fromIntegral) (ByteArray.unpack# xs#)
 {-# INLINE unpack #-}
 
 -- Query -----------------------------------------------------------------------
 
+-- | \(\mathcal{O}(1)\). Obtains the length of a 'Name' in characters.
+--
+-- @since 1.0.0
 size :: Name -> Int
 size (Name s#) = I# (ByteArray.size# s#)
 {-# INLINE size #-}
 
+-- | Obtains a character pointer addressing a 'Name'.
+--
+-- @since 1.0.0
 ptr :: Name -> Ptr Char
 ptr (Name s#) = Ptr (ByteArray.address# s#)
 {-# INLINE ptr #-}
+
+-- Comparison ------------------------------------------------------------------
+
+-- | \(\mathcal{O}(1)\). Tests pointer equivalence of two symbols.
+--
+-- @since 1.0.0
+equiv :: Name -> Name -> Bool
+equiv xs ys = ptr xs == ptr ys 
+{-# INLINE equiv #-}
