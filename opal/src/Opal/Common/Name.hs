@@ -120,7 +120,7 @@ ptr (Name s#) = Ptr (ByteArray.address# s#)
 
 -- Comparison ------------------------------------------------------------------
 
--- | \(\mathcal{O}(1)\). Tests pointer equivalence of two symbols.
+-- | \(\mathcal{O}(1)\). Tests pointer equivalence of two names.
 --
 -- @since 1.0.0
 equiv :: Name -> Name -> Bool
