@@ -85,5 +85,6 @@
   - {name: tail, within: [], message: "tail can fail with an unchecked exception"}
   - {name: unsafeCoerce#, within: [], message: "unsafeCoerce# is highly unsafe"}
 
+- ignore: {name: Avoid lambda}
 - ignore: {name: Use const}
 - ignore: {name: Use tuple-section}

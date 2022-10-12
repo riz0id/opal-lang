@@ -1,6 +1,4 @@
 {-# LANGUAGE OverloadedLists #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Opal.Expand.Syntax.BindStore

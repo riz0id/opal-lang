@@ -11,6 +11,7 @@ module Opal.Expand.Syntax
     scope,
     flips,
     prune,
+    index,
 
     -- * StxIdt
     StxIdt (StxIdt, context, symbol),
@@ -110,6 +111,13 @@ prune ph sc (StxList ctx stxs) =
   let ctx' :: StxCtx 
       ctx' = adjust ph (`ScopeSet.difference` sc) ctx 
    in StxList ctx' (map (prune ph sc) stxs)
+
+-- | TODO
+--
+-- @since 1.0.0
+index :: Phase -> Syntax -> ScopeSet
+index ph (StxAtom ctx _) = MultiScopeSet.index ph (multiscope ctx)
+index ph (StxList ctx _) = MultiScopeSet.index ph (multiscope ctx)
 
 -- StxCtx ----------------------------------------------------------------------
 

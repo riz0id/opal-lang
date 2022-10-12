@@ -89,7 +89,7 @@ superset a b = ScopeSet.superset (scopes a) (scopes b)
 --
 -- @since 1.0.0
 subset :: Binding -> ScopeSet -> Bool
-subset binding scps = ScopeSet.subset binding.scopes scps 
+subset binding = ScopeSet.subset (scopes binding) 
 
 -- Folds -----------------------------------------------------------------------
 

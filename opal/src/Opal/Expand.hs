@@ -179,8 +179,8 @@ data ExpandCtx = ExpandCtx
 -- | TODO
 --
 -- @since 1.0.0
-emptyExpandCtx :: ExpandCtx
-emptyExpandCtx = ExpandCtx (Phase 0) Map.empty
+newExpandCtx :: ExpandCtx
+newExpandCtx = ExpandCtx (Phase 0) Map.empty
 
 -- | TODO
 --
@@ -221,7 +221,7 @@ emptyExpandStore = ExpandStore BindStore.empty (ScopeId 0) 0 mempty mempty
 -- @since 1.0.0
 runExpandSyntax :: Syntax -> Either ExpandError Syntax
 runExpandSyntax stx =
-  runExpand emptyExpandCtx emptyExpandStore do
+  runExpand newExpandCtx emptyExpandStore do
     let stx' = Syntax.scope (Phase 0) (ScopeId 0) stx
     introPrimBinds
     expandSyntax stx'
@@ -392,10 +392,16 @@ expandStxList ctx (StxAtom ctx' atom : stxs) = do
         pure (GenSym.toName gen, TfmDatum val)
 
       local (bulkExtend vals) do
+        modify \store -> 
+          store {intro'scopes = foldr ScopeSet.insert store.intro'scopes scps}
         expandSyntax (foldr (Syntax.scope ph) stx1 scps)
     BindPrim PrimSyntax ->
       case stxs of
-        [stx] -> pure stx
+        [stx] -> do 
+          ph <- asks phase
+          intro'scps <- gets intro'scopes
+          let stx' = Syntax.prune ph intro'scps stx
+          pure (StxList ctx [stx'])
         _ -> undefined
     BindPrim prim -> undefined
     BindName name -> do

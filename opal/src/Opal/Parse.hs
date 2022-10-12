@@ -203,9 +203,9 @@ resolve ctx symbol = do
 -- @since 1.0.0
 pSyntax :: Syntax -> Parse Expr
 pSyntax (StxAtom ctx atom) = pStxAtom ctx atom
-pSyntax (StxList ctx stxs)
-  | null stxs = throwError (ExnMissingProc (StxList ctx stxs))
-  | otherwise = pStxList (head stxs) (tail stxs)
+pSyntax (StxList ctx stxs) = case stxs of 
+  [] -> throwError (ExnMissingProc (StxList ctx stxs))
+  stx : stxs' -> pStxList stx stxs'
 
 -- | TODO
 --
@@ -256,14 +256,11 @@ pStxList (StxList ctx stx) stxs = do
 --
 -- @since 1.0.0
 pStxLambda :: [Syntax] -> Parse Procedure
-pStxLambda stxs
-  | length stxs /= 2 = do
-      let exn = ExnParseLambda stxs
-      throwError exn
-  | otherwise = do
-      vars <- pStxFormals (stxs List.!! 0)
-      body <- pSyntax (stxs List.!! 1)
-      pure (Procedure vars body)
+pStxLambda [stx1, stx2] = do
+    vars <- pStxFormals stx1 
+    body <- pSyntax stx2
+    pure (Procedure vars body)
+pStxLambda stxs = throwError (ExnParseLambda stxs)
 
 -- | TODO
 --
@@ -281,18 +278,17 @@ pStxFormalIdts (StxAtom ctx atom) = pure [StxIdt ctx atom]
 pStxFormalIdts (StxList ctx vars) = do
   for vars \case
     StxAtom ctx' atom -> pure (StxIdt ctx' atom)
-    StxList {} -> throwError (ExnParseLambda $ [StxList ctx vars])
+    StxList {} -> throwError (ExnParseLambda [StxList ctx vars])
 
 -- | TODO
 --
 -- @since 1.0.0
 pStxCase :: [Syntax] -> Parse Datum
-pStxCase stxs
-  | length stxs < 1 = throwError (ExnParseCase stxs)
-  | otherwise = do
-      scrut <- pSyntax (head stxs)
-      cases <- traverse pStxClause (tail stxs)
-      pure (DatumCase scrut cases)
+pStxCase [] = throwError (ExnParseCase [])
+pStxCase (stx : stxs) = do
+  scrut <- pSyntax stx
+  cases <- traverse pStxClause stxs 
+  pure (DatumCase scrut cases)
 
 -- | TODO
 --
@@ -311,7 +307,7 @@ pStxClause (StxList _ [StxList _ stx1, stx2]) = do
   body <- pSyntax stx2
   pure (Clause (DatumList pats) body)
 pStxClause stx =
-  throwError (ExnParseClause $ stx)
+  throwError (ExnParseClause stx)
 
 -- | TODO
 --
@@ -359,7 +355,7 @@ pStxLetSyntaxBinds stx = throwError (ExnParseLetSyntaxBind stx)
 pStxSyntax :: [Syntax] -> Parse Expr
 pStxSyntax stxs
   | length stxs /= 1 = throwError (ExnParseSyntax stxs)
-  | otherwise = pure (SExpVal $ DatumStx $ stxs List.!! 0)
+  | otherwise = pure (SExpVal $ DatumStx $ head stxs)
 
 -- | TODO
 --
@@ -367,4 +363,4 @@ pStxSyntax stxs
 pStxQuote :: [Syntax] -> Parse Expr
 pStxQuote stxs
   | length stxs /= 1 = throwError (ExnParseQuote stxs)
-  | otherwise = pure (SExpVal $ syntaxToDatum $ stxs List.!! 0)
+  | otherwise = pure (SExpVal $ syntaxToDatum $ head stxs)
