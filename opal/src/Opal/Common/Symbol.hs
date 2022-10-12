@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- |
 -- Module      :  Opal.Common.Symbol
 -- Copyright   :  (c) Jacob Leach, 2022
@@ -63,7 +65,7 @@ instance Data Symbol where
 
 -- | @since 1.0.0
 instance Emit Symbol where
-  emit x = Emit.text (Text.pack (unpack x))
+  emit x = "'" <> Emit.text (Text.pack (unpack x))
   {-# INLINE emit #-}
 
 -- | @since 1.0.0

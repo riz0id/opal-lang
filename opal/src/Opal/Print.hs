@@ -99,7 +99,7 @@ docSExpApp fun args = Emit.parens (Emit.hsep (map docSExp (fun : args)))
 -- @since 1.0.0
 docDatum :: Datum -> Doc a
 docDatum (DatumStx stx) = docSyntax stx
-docDatum (DatumAtom atom) = Emit.text (Text.pack ('\'' : Symbol.unpack atom))
+docDatum (DatumAtom atom) = emit atom
 docDatum (DatumPrim prim) = docPrim prim
 docDatum (DatumProc vars body) =
   "'(λ ("
@@ -130,7 +130,7 @@ docClause (Clause pat body) = "'" <> Emit.bracks (docDatum pat <+> docSExp body)
 docPrim :: Prim -> Doc a
 docPrim PrimBoolFalse = "#f"
 docPrim PrimBoolTrue = "#t"
-docPrim prim = "'" <> Emit.text (Text.pack (Name.unpack (Prim.primToName prim)))
+docPrim prim = emit (Prim.primToSymbol prim)
 
 -- TODO ------------------------------------------------------------------------
 
