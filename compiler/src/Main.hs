@@ -5,6 +5,7 @@ import Control.Exception (ErrorCall (ErrorCall), throwIO)
 import Data.Foldable (for_)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Text.IO qualified as Text.IO
+import Data.Text (Text)
 
 import System.Environment (getArgs)
 import System.Exit qualified as Exit
@@ -27,6 +28,7 @@ import Opal.Run.Command (Command (CmdEval, CmdParse, CmdRead, CmdExpand))
 import Opal.Run.Parse qualified as Parse
 import qualified Opal.Evaluate as Eval
 import qualified Opal.Expand as Expand
+import qualified Data.Text as Text
 
 --------------------------------------------------------------------------------
 
@@ -59,44 +61,46 @@ main = do
         IO.hPutStrLn IO.stdout (filepath ++ ": read syntax: ")
         Text.IO.hPutStrLn IO.stdout (Print.pprSyntax syntax)
 
-evalOpalIO :: String -> IO Datum
+evalOpalIO :: Text -> IO Datum
 evalOpalIO source = do 
   sexp <- parseOpalIO source 
   case Eval.runKernalEval sexp of 
     Left exn -> throwIO (ErrorCall $ show exn)
     Right val -> pure val
 
-expandOpalIO :: String -> IO Syntax
+expandOpalIO :: Text -> IO Syntax
 expandOpalIO source = do 
   stx <- readOpalIO source 
   case Expand.runExpandSyntax stx of 
     Left exn -> throwIO (ErrorCall $ show exn)
     Right stx' -> pure stx'
 
-parseOpalIO :: String -> IO Expr
+parseOpalIO :: Text -> IO Expr
 parseOpalIO source = do
   syntax <- readOpalIO source
   case Parse.evalParseExpr syntax of
     Left exn -> throwIO (ErrorCall $ show exn)
     Right sexp -> pure sexp
 
-readOpalIO :: String -> IO Syntax
+readOpalIO :: Text -> IO Syntax
 readOpalIO source =
   case Read.runRead source of
     Left exn -> throwIO (ErrorCall $ show exn)
     Right stx -> pure stx
 
-getOpalFileIO :: FilePath -> IO String
-getOpalFileIO filepath = IO.withFile filepath IO.ReadMode IO.hGetContents'
+getOpalFileIO :: FilePath -> IO Text
+getOpalFileIO filepath = IO.withFile filepath IO.ReadMode Text.IO.hGetContents
 
 getExecCommand :: IO Command
 getExecCommand = do
   args <- getArgs
   case NonEmpty.nonEmpty args of
     Just {} ->
-      case Parsel.parse (unwords args) Parse.pCommand of
-        Left exn -> throwIO (ErrorCall $ show exn)
-        Right cmd -> pure cmd
+      let input :: Text 
+          input = Text.unwords (map Text.pack args)
+       in case Parsel.parse input Parse.pCommand of
+            Left exn -> throwIO (ErrorCall $ show exn)
+            Right cmd -> pure cmd
     Nothing -> do
       IO.hPutStrLn IO.stderr "opal: no command specified."
       Exit.exitFailure

@@ -1,5 +1,5 @@
-{ mkDerivation, base, fetchgit, ghc-prim, hedgehog, lib, prim-bool
-, prim-char, prim-int, prim-ord, tasty, tasty-hedgehog
+{ mkDerivation, base, deepseq, fetchgit, ghc-prim, hedgehog, lib
+, prim-bool, prim-char, prim-int, prim-ord, tasty, tasty-hedgehog
 , template-haskell
 }:
 mkDerivation {
@@ -7,12 +7,12 @@ mkDerivation {
   version = "1.0.0";
   src = fetchgit {
     url = "https://github.com/riz0id/source-locations";
-    sha256 = "03h5f62m920xis2skp40ib2bvhk4qygf84a2xyw1b25jh0aim2mp";
-    rev = "45546d124129f2f93a143d8f709b8bf19dcb8074";
+    sha256 = "0xdkx752vhl6l6fwpq7jswpxrrs2yk4frz823jxmdwccah0g0lhc";
+    rev = "7380664b8a627810c70949bf8741a3e501e59f5c";
     fetchSubmodules = true;
   };
   libraryHaskellDepends = [
-    base ghc-prim prim-bool prim-char prim-int prim-ord
+    base deepseq ghc-prim prim-bool prim-char prim-int prim-ord
     template-haskell
   ];
   testHaskellDepends = [ base hedgehog tasty tasty-hedgehog ];

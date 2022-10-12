@@ -1,5 +1,6 @@
 {-# LANGUAGE ApplicativeDo #-}
-{-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Opal.Read
   ( -- * TODO
@@ -11,10 +12,12 @@ import Control.Applicative (many, some, (<|>))
 
 import Data.SrcLoc (SrcLoc)
 import Data.SrcLoc qualified as SrcLoc
+import Data.Text (Text)
+import Data.Text qualified as Text
 
 import Prelude hiding (Read)
 
-import Text.Parsel (Parse, ParseError)
+import Text.Parsel (Grammar, ParseError)
 import Text.Parsel qualified as Parsel
 
 --------------------------------------------------------------------------------
@@ -29,7 +32,7 @@ import Opal.Expand.Syntax.MultiScopeSet qualified as MultiScopeSet
 -- | TODO
 --
 -- @since 1.0.0
-runRead :: String -> Either ParseError Syntax
+runRead :: Text -> Either ParseError Syntax
 runRead src = Parsel.parse src rSyntax
 
 -- TODO ------------------------------------------------------------------------
@@ -57,13 +60,13 @@ makeStxList begin end stxs =
 -- | TODO
 --
 -- @since 1.0.0
-rSyntax :: Parse Syntax
+rSyntax :: Grammar Syntax
 rSyntax = many Parsel.whitespace *> Parsel.choice [rStxPrim, rStxAtom, rStxList]
 
 -- | TODO
 --
 -- @since 1.0.0
-rStxPrim :: Parse Syntax
+rStxPrim :: Grammar Syntax
 rStxPrim =
   Parsel.choice
     [ rStxPrimFalse
@@ -77,25 +80,25 @@ rStxPrim =
 -- | TODO
 --
 -- @since 1.0.0
-rStxPrimFalse :: Parse Syntax
+rStxPrimFalse :: Grammar Syntax
 rStxPrimFalse = do
   srcloc <- Parsel.location
-  symbol <- Parsel.string "#f"
+  symbol <- fmap Text.unpack (Parsel.string "#f")
   pure (makeStxAtom srcloc symbol)
 
 -- | TODO
 --
 -- @since 1.0.0
-rStxPrimTrue :: Parse Syntax
+rStxPrimTrue :: Grammar Syntax
 rStxPrimTrue = do
   srcloc <- Parsel.location
-  symbol <- Parsel.string "#t"
+  symbol <- fmap Text.unpack (Parsel.string "#t")
   pure (makeStxAtom srcloc symbol)
 
 -- | TODO
 --
 -- @since 1.0.0
-rStxPrimQuote :: Parse Syntax
+rStxPrimQuote :: Grammar Syntax
 rStxPrimQuote = do
   begin <- Parsel.location
   quote <- pQuote
@@ -106,7 +109,7 @@ rStxPrimQuote = do
 -- | TODO
 --
 -- @since 1.0.0
-rStxPrimUnquote :: Parse Syntax
+rStxPrimUnquote :: Grammar Syntax
 rStxPrimUnquote = do
   begin <- Parsel.location
   unquote <- pUnquote
@@ -117,7 +120,7 @@ rStxPrimUnquote = do
 -- | TODO
 --
 -- @since 1.0.0
-rStxPrimSyntax :: Parse Syntax
+rStxPrimSyntax :: Grammar Syntax
 rStxPrimSyntax = do
   begin <- Parsel.location
   syntax <- pSyntax
@@ -128,7 +131,7 @@ rStxPrimSyntax = do
 -- | TODO
 --
 -- @since 1.0.0
-rStxPrimUnsyntax :: Parse Syntax
+rStxPrimUnsyntax :: Grammar Syntax
 rStxPrimUnsyntax = do
   begin <- Parsel.location
   unsyntax <- pUnsyntax
@@ -139,33 +142,36 @@ rStxPrimUnsyntax = do
 -- | TODO
 --
 -- @since 1.0.0
-rStxAtom :: Parse Syntax
+rStxAtom :: Grammar Syntax
 rStxAtom = do
   srcloc <- Parsel.location
-  symbol <- some (foldr ((<|>) . Parsel.char) Parsel.alphaNum "-/!+-<>=*")
+  symbol <- some (foldr @[] ((<|>) . Parsel.char) Parsel.alphaNum "-/!+-<>=*")
   many Parsel.whitespace
   pure (makeStxAtom srcloc symbol)
 
 -- | TODO
 --
 -- @since 1.0.0
-rStxList :: Parse Syntax
+rStxList :: Grammar Syntax
 rStxList = do
   begin <- Parsel.location
-  stxs <- rList $ Parsel.surround (many Parsel.whitespace) $ many rSyntax
+  stxs <- rList $ rSurround (many Parsel.whitespace) $ many rSyntax
   end <- Parsel.location
   many Parsel.whitespace
   pure (makeStxList begin end stxs)
-  where 
-    rList :: Parse a -> Parse a 
+  where
+    rList :: Grammar a -> Grammar a
     rList tok = Parsel.parentheses tok <|> Parsel.brackets tok
+
+    rSurround :: Grammar x -> Grammar a -> Grammar a
+    rSurround a x = a *> x <* a
 
 --------------------------------------------------------------------------------
 
 -- | TODO
 --
 -- @since 1.0.0
-pQuote :: Parse Syntax
+pQuote :: Grammar Syntax
 pQuote = do
   srcloc <- Parsel.location
   Parsel.char '\''
@@ -174,7 +180,7 @@ pQuote = do
 -- | TODO
 --
 -- @since 1.0.0
-pUnquote :: Parse Syntax
+pUnquote :: Grammar Syntax
 pUnquote = do
   srcloc <- Parsel.location
   Parsel.char ','
@@ -183,7 +189,7 @@ pUnquote = do
 -- | TODO
 --
 -- @since 1.0.0
-pSyntax :: Parse Syntax
+pSyntax :: Grammar Syntax
 pSyntax = do
   srcloc <- Parsel.location
   Parsel.string "#'"
@@ -192,7 +198,7 @@ pSyntax = do
 -- | TODO
 --
 -- @since 1.0.0
-pUnsyntax :: Parse Syntax
+pUnsyntax :: Grammar Syntax
 pUnsyntax = do
   srcloc <- Parsel.location
   Parsel.string "#,"

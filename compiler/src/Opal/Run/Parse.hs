@@ -1,5 +1,5 @@
 {-# LANGUAGE ApplicativeDo #-}
-{-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Opal.Run.Parse
   ( -- * TODO
@@ -17,26 +17,27 @@ where
 import Control.Applicative (many, some, (<|>))
 
 import Data.Functor (($>))
+import Data.Text (Text)
 
-import Text.Parsel (Parse)
+import Text.Parsel (Grammar)
 import Text.Parsel qualified as Parsel
 
 --------------------------------------------------------------------------------
 
-import Opal.Run.Command (Command (CmdRead, CmdEval, CmdParse, CmdExpand))
+import Opal.Run.Command (Command (CmdEval, CmdExpand, CmdParse, CmdRead))
 
 --------------------------------------------------------------------------------
 
 -- | TODO
 --
 -- @since 1.0.0
-pCommand :: Parse Command
+pCommand :: Grammar Command
 pCommand = Parsel.choice [pCmdEval, pCmdExpand, pCmdParse, pCmdRead]
 
 -- | TODO
 --
 -- @since 1.0.0
-pCmdEval :: Parse Command
+pCmdEval :: Grammar Command
 pCmdEval = do
   pKeyword "eval"
   filepaths <- many pFilePath
@@ -45,7 +46,7 @@ pCmdEval = do
 -- | TODO
 --
 -- @since 1.0.0
-pCmdExpand :: Parse Command
+pCmdExpand :: Grammar Command
 pCmdExpand = do
   pKeyword "expand"
   filepaths <- many pFilePath
@@ -54,7 +55,7 @@ pCmdExpand = do
 -- | TODO
 --
 -- @since 1.0.0
-pCmdParse :: Parse Command
+pCmdParse :: Grammar Command
 pCmdParse = do
   pKeyword "parse"
   filepaths <- many pFilePath
@@ -63,7 +64,7 @@ pCmdParse = do
 -- | TODO
 --
 -- @since 1.0.0
-pCmdRead :: Parse Command
+pCmdRead :: Grammar Command
 pCmdRead = do
   pKeyword "read"
   filepaths <- many pFilePath
@@ -72,11 +73,11 @@ pCmdRead = do
 -- | TODO
 --
 -- @since 1.0.0
-pFilePath :: Parse FilePath
+pFilePath :: Grammar FilePath
 pFilePath = some (Parsel.alphaNum <|> Parsel.char '/' <|> Parsel.char '.')
 
 -- | TODO
 --
 -- @since 1.0.0
-pKeyword :: String -> Parse ()
+pKeyword :: Text -> Grammar ()
 pKeyword kw = Parsel.string kw *> some Parsel.whitespace $> ()
