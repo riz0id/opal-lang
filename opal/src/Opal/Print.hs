@@ -35,7 +35,6 @@ import Text.Emit qualified as Emit
 import Opal.Common.Name (Name)
 import Opal.Common.Name qualified as Name
 import Opal.Common.Symbol (Symbol)
-import Opal.Common.Symbol qualified as Symbol
 
 import Opal.Core
   ( Datum (DatumAtom, DatumList, DatumPrim, DatumProc, DatumStx),
@@ -48,7 +47,6 @@ import Opal.Core.Prim qualified as Prim
 
 import Opal.Expand.Syntax (StxCtx, Syntax (StxAtom, StxList))
 import Opal.Expand.Syntax qualified as Syntax
-import Opal.Core.Prim (Prim(PrimLetSyntax))
 
 -- TODO ------------------------------------------------------------------------
 
