@@ -34,7 +34,6 @@ where
 import Control.Monad.Except (MonadError, catchError, throwError)
 import Control.Monad.Reader (MonadReader, ask, asks, local)
 
-import Data.List qualified as List
 import Data.Traversable (for)
 
 import Prelude hiding (exp)

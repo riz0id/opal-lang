@@ -287,11 +287,11 @@ newScopeId = do
 --
 -- @since 1.0.0
 introPrimBind :: Prim -> Expand ()
-introPrimBind prim =
+introPrimBind prim = do
   let name = Symbol.toName (Prim.primToSymbol prim)
-      bind = Binding (ScopeSet.singleton $ ScopeId 0) (BindPrim prim)
-   in modify \store ->
-        store {bindstore = BindStore.insert name bind store.bindstore}
+  let bind = Binding (ScopeSet.singleton $ ScopeId 0) (BindPrim prim)
+  modify \store -> 
+    store {bindstore = BindStore.insert name bind store.bindstore}
 
 -- | TODO
 --
@@ -301,9 +301,9 @@ introBind idt = do
   ph <- asks phase
   gen <- newGenSymWith idt.symbol
   let name = Symbol.toName idt.symbol
-      bind = Binding (MultiScopeSet.index ph idt.context.multiscope) (BindName $ GenSym.toName gen)
-   in modify \store ->
-        store {bindstore = BindStore.insert name bind store.bindstore}
+  let scps = MultiScopeSet.index ph idt.context.multiscope
+  let bind = Binding scps (BindName $ GenSym.toName gen)
+  modify \store -> store {bindstore = BindStore.insert name bind store.bindstore}
   pure gen
 
 -- | TODO

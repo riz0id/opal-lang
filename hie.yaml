@@ -1,7 +1,7 @@
 
 cradle: 
   cabal: 
-    - path: "./opal/src" 
+    - path: "./src" 
       component: "lib:opal"
     - path: "./compiler"
       component: "exe:opal"

@@ -11,7 +11,14 @@ module Opal.Core
     toVarRef,
 
     -- * Datums
-    Datum (DatumCase, DatumStx, DatumAtom, DatumProc, DatumPrim, DatumList),
+    Datum
+      ( DatumCase,
+        DatumStx,
+        DatumAtom,
+        DatumProc,
+        DatumPrim,
+        DatumList
+      ),
 
     -- ** Construction
     atomToDatum,
@@ -41,6 +48,9 @@ module Opal.Core
         PrimMakeStx,
         PrimSetMut,
         PrimLambda,
+        PrimLetSyntax,
+        PrimQuote,
+        PrimSyntax,
         PrimVoid
       ),
     primToSymbol,
@@ -78,6 +88,9 @@ import Opal.Core.Prim
         PrimMakeStx,
         PrimSetMut,
         PrimStxExpr,
+        PrimLetSyntax,
+        PrimSyntax,
+        PrimQuote,
         PrimVoid
       ),
     primToSymbol,

@@ -58,7 +58,7 @@ common common
 
 library
   import:         common
-  hs-source-dirs: opal/src
+  hs-source-dirs: src
 
   default-extensions:
     DataKinds DeriveDataTypeable GeneralizedNewtypeDeriving 
