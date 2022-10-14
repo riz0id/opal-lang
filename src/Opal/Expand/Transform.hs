@@ -1,14 +1,6 @@
 module Opal.Expand.Transform
   ( -- * Transformers
-    Transform
-      ( TfmLambda,
-        TfmLetSyntax,
-        TfmQuote,
-        TfmSyntax,
-        TfmVar,
-        TfmDtm,
-        TfmStop
-      ),
+    Transform (TfmVar, TfmDtm, TfmStop),
     unstop,
   )
 where
@@ -27,11 +19,7 @@ import Opal.Expand.Syntax (StxIdt)
 --
 -- @since 1.0.0
 data Transform
-  = TfmLambda
-  | TfmLetSyntax
-  | TfmQuote
-  | TfmSyntax
-  | TfmVar {-# UNPACK #-} !StxIdt
+  = TfmVar {-# UNPACK #-} !StxIdt
   | TfmDtm Datum
   | TfmStop Transform
   deriving (Data, Eq, Ord, Show)

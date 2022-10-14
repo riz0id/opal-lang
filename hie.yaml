@@ -5,7 +5,7 @@ cradle:
       component: "lib:opal"
     - path: "./compiler"
       component: "exe:opal"
-    # - path: "./opal-lang/test" 
-    #   component: "test:test"
+    - path: "./test" 
+      component: "test:test"
 
 

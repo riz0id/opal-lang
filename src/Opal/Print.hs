@@ -127,7 +127,7 @@ docClause (Clause pat body) = "'" <> Emit.bracks (docDatum pat <+> docSExp body)
 --
 -- @since 1.0.0
 docCoreForm :: CoreForm -> Doc a
-docCoreForm prim = emit (CoreForm.primToSymbol prim)
+docCoreForm prim = emit (CoreForm.toSymbol prim)
 
 -- TODO ------------------------------------------------------------------------
 

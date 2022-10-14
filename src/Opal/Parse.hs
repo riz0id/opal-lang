@@ -49,19 +49,17 @@ import Opal.Common.Symbol (Symbol)
 import Opal.Common.Symbol qualified as Symbol
 
 import Opal.Core
-  ( Datum (DatumCore, DatumProc, DatumStx),
+  ( Datum (DatumProc, DatumStx),
     Expr,
     SExp (SExpApp, SExpVal, SExpVar),
     syntaxToDatum,
   )
-import Opal.Core.CoreForm (CoreForm (CoreFormLambda, CoreFormQuote, CoreFormSyntax))
 
 import Opal.Expand.Resolve qualified as Resolve
 import Opal.Expand.Syntax (StxCtx, StxIdt (StxIdt), Syntax (StxAtom, StxList), stxatom)
 import Opal.Expand.Syntax qualified as Syntax
 import Opal.Expand.Syntax.BindStore (BindStore)
 import Opal.Expand.Syntax.BindStore qualified as BindStore
-import Opal.Expand.Syntax.Binding (Binder (BindCore, BindName))
 import Opal.Expand.Syntax.Binding qualified as Binding
 import Opal.Expand.Syntax.MultiScopeSet (Phase (Phase))
 import Opal.Expand.Syntax.ScopeSet (ScopeId (ScopeId))
@@ -186,7 +184,7 @@ data ParseCtx = ParseCtx
 -- | TODO
 --
 -- @since 1.0.0
-resolve :: StxCtx -> Symbol -> Parse Binder
+resolve :: StxCtx -> Symbol -> Parse Name
 resolve ctx symbol = do
   ph <- asks phase
   store <- asks bindstore
@@ -194,7 +192,7 @@ resolve ctx symbol = do
   let idt :: StxIdt
       idt = StxIdt ctx symbol
    in case Resolve.runResolveId ph idt store of
-        Left {} -> pure (BindName $ Symbol.toName symbol)
+        Left {} -> pure (Symbol.toName symbol)
         Right binding -> pure binding.binder
 
 -- TODO ------------------------------------------------------------------------
@@ -229,33 +227,26 @@ pStxIdt stx =
 --
 -- @since 1.0.0
 pStxAtom :: StxCtx -> Symbol -> Parse Expr
-pStxAtom ctx atom = do
-  bind <- resolve ctx atom
-  case bind of
-    BindCore prim -> pure (SExpVal $ DatumCore prim)
-    BindName name -> pure (SExpVar name)
+pStxAtom ctx atom = fmap SExpVar (resolve ctx atom)
 
 -- | TODO
 --
 -- @since 1.0.0
 pStxList :: Syntax -> [Syntax] -> Parse Expr
 pStxList (StxAtom ctx atom) stxs = do
-  bind <- resolve ctx atom
-  case bind of
-    BindCore CoreFormLambda -> do
+  resolve ctx atom >>= \case
+    "quote" -> do 
+      pStxQuote stxs
+    "syntax" -> do 
+      pStxSyntax stxs
+    "lambda" -> do
       case stxs of
         [stx1, stx2] -> do
           args <- pStxFormals stx1
           func <- pSyntax stx2
           pure (SExpVal $ DatumProc args func)
         _ -> throwError (ExnParseLambda stxs)
-    BindCore CoreFormSyntax -> pStxSyntax stxs
-    BindCore CoreFormQuote -> pStxQuote stxs
-    BindCore prim -> do
-      let func = SExpVal (DatumCore prim)
-      args <- traverse pSyntax stxs
-      pure (SExpApp func args)
-    BindName name -> do
+    name -> do
       let func = SExpVar name
       args <- traverse pSyntax stxs
       pure (SExpApp func args)

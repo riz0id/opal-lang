@@ -15,7 +15,7 @@ module Opal.Expand
     ExpandCtx (ExpandCtx, phase, environment),
 
     -- ** Expander Store
-    ExpandStore (ExpandStore, bindstore, intro'scopes, use'scopes),
+    ExpandStore (ExpandStore, bindstore, intro'scopes, usage'scopes),
 
     -- * TODO
     runExpandSyntax,
@@ -25,7 +25,8 @@ module Opal.Expand
   )
 where
 
-import Control.Monad.Except (MonadError, catchError, liftEither, replicateM, throwError)
+import Control.Monad ((<=<))
+import Control.Monad.Except (MonadError, catchError, throwError)
 import Control.Monad.Reader (MonadReader, ask, asks, local)
 import Control.Monad.ST (runST)
 import Control.Monad.State (MonadState, get, gets, modify, put, state)
@@ -45,7 +46,6 @@ import Opal.Common.Symbol qualified as Symbol
 import Opal.Core.CoreForm
   ( CoreForm (CoreFormLambda, CoreFormLetSyntax, CoreFormSyntax),
   )
-import Opal.Core.CoreForm qualified as CoreForm
 
 import Opal.Expand.Resolve (ResolveError)
 import Opal.Expand.Resolve qualified as Resolve
@@ -58,35 +58,33 @@ import Opal.Expand.Syntax qualified as Syntax
 import Opal.Expand.Syntax.BindStore (BindStore)
 import Opal.Expand.Syntax.BindStore qualified as BindStore
 import Opal.Expand.Syntax.Binding
-  ( Binder (BindCore, BindName),
-    Binding (Binding),
+  ( Binding (Binding),
   )
 import Opal.Expand.Syntax.Binding qualified as Binding
 import Opal.Expand.Syntax.MultiScopeSet (Phase (Phase))
 import Opal.Expand.Syntax.ScopeSet (ScopeId (ScopeId), ScopeSet)
 import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
 import Opal.Expand.Transform
-  ( Transform (TfmDtm, TfmLambda, TfmLetSyntax, TfmQuote, TfmSyntax, TfmVar),
+  ( Transform (TfmDtm, TfmVar),
   )
 
-import Control.Monad (foldM, zipWithM, (<=<))
 import Debug.Trace qualified as Debug
-import GHC.Exts (fromList)
 import Opal.Common.GenSym qualified as GenSym
 import Opal.Common.Symbol (Symbol)
 import Opal.Core
-  ( CoreForm (CoreFormQuote),
-    Datum (DatumAtom, DatumStx, DatumPrim, DatumProc),
+  ( Datum (..),
     Expr,
     SExp (SExpApp, SExpVal),
   )
+import Opal.Core.CoreForm (CoreForm (CoreFormQuote))
+import Opal.Core.CorePrim (CorePrim (CorePrimSyntaxLocalValue))
+import Opal.Core.CorePrim qualified as CorePrim
 import Opal.Core.Datum (Datum (DatumBool))
 import Opal.Evaluate (EvalCtx (EvalCtx), EvalExn, EvalStore (EvalStore))
 import Opal.Evaluate qualified as Eval
 import Opal.Expand.Syntax.MultiScopeSet qualified as MultiScopeSet
 import Opal.Parse (Parse, ParseError (ExnParseLambda))
 import Opal.Parse qualified as Parse
-import Opal.Core.CorePrim (CorePrim(CorePrimSyntaxLocalValue))
 
 -- Expand Monad ----------------------------------------------------------------
 
@@ -222,7 +220,7 @@ data ExpandStore = ExpandStore
   { bindstore :: BindStore
   , next'scope :: {-# UNPACK #-} !ScopeId
   , next'genId :: {-# UNPACK #-} !Int
-  , use'scopes :: ScopeSet
+  , usage'scopes :: ScopeSet
   , intro'scopes :: ScopeSet
   }
   deriving (Eq, Ord, Show)
@@ -252,10 +250,10 @@ modifyExpandIntroScopes' f =
 -- | TODO
 --
 -- @since 1.0.0
-modifyExpandUseScopes' :: (ScopeSet -> ScopeSet) -> Expand ()
-modifyExpandUseScopes' f =
+modifyExpandUsageScopes' :: (ScopeSet -> ScopeSet) -> Expand ()
+modifyExpandUsageScopes' f =
   modifyExpandStore' \store ->
-    store {use'scopes = f (intro'scopes store)}
+    store {usage'scopes = f (usage'scopes store)}
 
 -- | TODO
 --
@@ -274,18 +272,25 @@ runExpandSyntax stx =
     let coreScope = ScopeId 0
 
     -- Introduce bindings to core syntax
-    introPrimBinds
+    introPrimBinding "quote" coreScope
+    introPrimBinding "syntax" coreScope
+    introPrimBinding "lambda" coreScope
+    introPrimBinding "let-syntax" coreScope
 
     -- Introduce bindings to core primitives
-    primTrue <- introPrimBinding "#t" coreScope
-    primFalse <- introPrimBinding "#f" coreScope
-    primSyntaxLocalValue <- introPrimBinding "syntax-local-value" coreScope
+    introPrimBinding "#t" coreScope
+    introPrimBinding "#f" coreScope
+    introPrimBinding "syntax-local-value" coreScope
 
     let corePrims :: [(Name, Transform)]
         corePrims =
-          [ (Binding.toName primTrue, TfmDtm (DatumBool True))
-          , (Binding.toName primFalse, TfmDtm (DatumBool False))
-          , (Binding.toName primSyntaxLocalValue, TfmDtm (DatumPrim CorePrimSyntaxLocalValue))
+          [ ("quote", TfmDtm (DatumCore CoreFormQuote))
+          , ("syntax", TfmDtm (DatumCore CoreFormSyntax))
+          , ("lambda", TfmDtm (DatumCore CoreFormLambda))
+          , ("let-syntax", TfmDtm (DatumCore CoreFormLetSyntax))
+          , ("#t", TfmDtm (DatumBool True))
+          , ("#f", TfmDtm (DatumBool False))
+          , ("syntax-local-value", TfmDtm (DatumPrim CorePrimSyntaxLocalValue))
           ]
      in local (bulkExtend corePrims) do
           stx' <- scopeSyntaxM coreScope stx
@@ -333,9 +338,7 @@ resolve idt = do
   ph <- asks phase
   binds <- gets bindstore
   case Resolve.runResolveId ph idt binds of
-    Left exn ->
-      let !_ = Debug.trace (show idt) ()
-       in throwError (ExnResolveError exn)
+    Left exn -> throwError (ExnResolveError exn)
     Right bind -> pure bind
 
 -- | TODO
@@ -370,7 +373,7 @@ makeEvalStore = do
   EvalStore
     <$> gets bindstore
     <*> gets intro'scopes
-    <*> gets use'scopes
+    <*> gets usage'scopes
 
 -- | TODO
 --
@@ -381,25 +384,6 @@ newScopeId = do
     let store' :: ExpandStore
         store' = store {next'scope = succ store.next'scope}
      in (store.next'scope, store')
-
--- | TODO
---
--- @since 1.0.0
-introPrimBind :: CoreForm -> Expand ()
-introPrimBind form = do
-  let name = Symbol.toName (CoreForm.primToSymbol form)
-  let bind = Binding (ScopeSet.singleton $ ScopeId 0) (BindCore form)
-  modifyExpandBinds' (BindStore.insert name bind)
-
--- | TODO
---
--- @since 1.0.0
-introPrimBinds :: Expand ()
-introPrimBinds = do
-  introPrimBind CoreFormLambda
-  introPrimBind CoreFormLetSyntax
-  introPrimBind CoreFormSyntax
-  introPrimBind CoreFormQuote
 
 --------------------------------------------------------------------------------
 
@@ -421,32 +405,20 @@ syntaxExpand stx = do
 stxIdtExpand :: StxIdt -> Expand Syntax
 stxIdtExpand idt = do
   bind <- resolve idt
-  case bind.binder of
-    BindCore prim -> do
-      ph <- asks phase
-      let ctx = Syntax.makeStxCtx ph bind.scopes idt.context
-      let sym = CoreForm.primToSymbol prim
-      pure (StxAtom ctx sym)
-    BindName name -> do
-      env <- asks environment
-      case Map.lookup name env of
-        Nothing -> do
-          let !_ = Debug.trace (show env) ()
-          pure $ error ("unbound transformer: expandStxAtom: " ++ show name)
-        Just (TfmVar idt') -> pure idt'.syntax
-        Just (TfmDtm (DatumBool bool)) -> do
-          let symbol :: Symbol
-              symbol = if bool then "#t" else "#f"
-           in pure (StxAtom idt.context symbol)
-        Just (TfmDtm (DatumStx stx)) -> do
-          let !_ = Debug.trace ("syntax: " ++ show stx) ()
-          pure stx
-        Just (TfmDtm datum) -> do
-          let !_ = Debug.trace ("in expandSyntaxAtom: ") ()
-          throwError (ExnRecievedNotSyntax datum)
-        Just tfm -> do
-          let !_ = Debug.trace ("in expandSyntaxAtom: " ++ show tfm) ()
-          error ("stxIdtExpand: " ++ show tfm)
+  env <- asks environment
+  case Map.lookup bind.binder env of
+    Nothing -> do
+      pure $ error ("unbound transformer: expandStxAtom: " ++ show bind)
+    Just (TfmVar idt') -> pure idt'.syntax
+    Just (TfmDtm (DatumBool bool)) -> do
+      let symbol :: Symbol
+          symbol = if bool then "#t" else "#f"
+       in pure (StxAtom idt.context symbol)
+    Just (TfmDtm datum) -> do
+      let macro = idt.syntax
+      applyTransformer (SExpVal datum) [macro]
+    Just tfm -> do
+      error ("stxIdtExpand: " ++ show tfm)
 
 stxListExpand :: StxCtx -> [Syntax] -> Expand Syntax
 stxListExpand ctx (StxAtom ctx' atom : stxs) = do
@@ -459,44 +431,34 @@ stxListExpand ctx stxs = do
 
 idtApplicationExpand :: StxCtx -> StxIdt -> [Syntax] -> Expand Syntax
 idtApplicationExpand ctx idt stxs = do
-  binding <- resolve idt
-  case binding.binder of
-    BindCore CoreFormQuote -> do
-      pure (StxList ctx (idt.syntax : stxs))
-    BindCore CoreFormSyntax -> do
+  bind <- resolve idt
+  form <- indexEnvironment bind.binder
+  case form of
+    TfmDtm (DatumCore CoreFormQuote) -> do
+      let quote = StxAtom idt.context "quote"
+      pure (StxList ctx (quote : stxs))
+    TfmDtm (DatumCore CoreFormSyntax) -> do
+      let syntax = StxAtom idt.context "syntax"
       stxs' <- traverse pruneSyntaxM stxs
-      pure (StxList ctx (idt.syntax : stxs'))
-    BindCore CoreFormLambda
-      | [stx, stx'] <- stxs -> do
+      pure (StxList ctx (syntax : stxs'))
+    TfmDtm (DatumCore CoreFormLambda)
+      | [stx, body] <- stxs -> do
+          let lambda = StxAtom idt.context "lambda"
           args <- parse (Parse.pStxFormalIdts stx)
-          body <- lambdaBodyExpand args stx'
-          pure (StxList ctx [idt.syntax, stx, body])
+          (sc, body') <- lambdaBodyExpand args body
+          scopeSyntaxM sc (StxList ctx [lambda, stx, body'])
       | otherwise -> do
           throwError (ExnParseError (ExnParseLambda stxs))
-    BindCore CoreFormLetSyntax -> do
+    TfmDtm (DatumCore CoreFormLetSyntax) -> do
       (binds, body) <- parse (Parse.pStxLetSyntax stxs)
       letSyntaxExpand binds body
-    BindName name -> do
-      nameApplicationExpand ctx idt.context name stxs 
-
-nameApplicationExpand :: StxCtx -> StxCtx -> Name -> [Syntax] -> Expand Syntax
-nameApplicationExpand ctx ctxProc name stxs = do
-  indexEnvironment name >>= \case
-    TfmQuote -> do
-      error ("nameApplicationExpand: TfmQuote: " ++ show name)
-    TfmSyntax -> do
-      error ("nameApplicationExpand: TfmSyntax: " ++ show name)
-    TfmLambda -> do
-      error ("nameApplicationExpand: TfmLambda: " ++ show name)
-    TfmLetSyntax -> do
-      error ("nameApplicationExpand: TfmLetSyntax: " ++ show name)
     TfmDtm (DatumPrim prim) -> do
-      applyTransformer (SExpVal (DatumPrim prim)) stxs
+      let func = StxIdt idt.context (CorePrim.toSymbol prim)
+      applicationExpand ctx func stxs
     TfmDtm (DatumProc args body) -> do
-      let macro = StxList ctx (StxAtom ctxProc (Symbol.fromName name) : stxs)
+      let macro = StxList ctx (idt.syntax : stxs)
       applyTransformer (SExpVal (DatumProc args body)) [macro]
     TfmDtm dtm -> do
-      let !_ = Debug.trace (show dtm) ()
       error ("name application expand: " ++ show dtm)
     TfmVar func -> do
       applicationExpand ctx func stxs
@@ -508,137 +470,110 @@ applicationExpand ctx func stxs = do
 
 --------------------------------------------------------------------------------
 
-lambdaBodyExpand :: [StxIdt] -> Syntax -> Expand Syntax
+lambdaBodyExpand :: [StxIdt] -> Syntax -> Expand (ScopeId, Syntax)
 lambdaBodyExpand args body = do
-  scps <- replicateM (length args) newScopeId
-  tfms <- zipWithM makeArgTransform scps args
-  local (bulkExtend tfms) do
-    modifyExpandIntroScopes' (ScopeSet.union (fromList scps))
-    body' <- foldM (flip scopeSyntaxM) body scps
-    syntaxExpand body'
+  scope <- newScopeId
+  args' <- traverse (scopeStxIdtM scope) args
+  forms <- traverse makeArgTransform args'
+  body' <- scopeSyntaxM scope body
+  local (bulkExtend forms) do
+    modifyExpandIntroScopes' (ScopeSet.insert scope)
+    final <- syntaxExpand body'
+    pure (scope, final)
   where
-    makeArgTransform :: ScopeId -> StxIdt -> Expand (Name, Transform)
-    makeArgTransform sc arg = do
-      let name = Symbol.toName arg.symbol
-      binding <- makeBinding arg sc
-      modifyExpandBinds' (BindStore.insert name binding)
-      pure (Binding.toName binding, TfmVar arg)
+    makeArgTransform :: StxIdt -> Expand (Name, Transform)
+    makeArgTransform arg = do
+      name <- makeBinding arg
+      pure (name, TfmVar arg)
 
 --------------------------------------------------------------------------------
 
 letSyntaxExpand :: [(StxIdt, Syntax)] -> Syntax -> Expand Syntax
-letSyntaxExpand binds body = do
-  scps <- replicateM (length binds) newScopeId
-  gens <- zipWithM makeLetSyntaxBind scps binds
-  tfms <- traverse makeDatumTransform gens
-
-  local (bulkExtend tfms) do
-    modifyExpandIntroScopes' (ScopeSet.union (fromList scps))
-    body' <- foldM (flip scopeSyntaxM) body scps
-    syntaxExpand body'
+letSyntaxExpand vars body = do
+  scope <- newScopeId
+  names <- traverse (makeLetSyntaxBind scope) vars
+  forms <- traverse makeDatumTransform names
+  body' <- scopeSyntaxM scope body
+  local (bulkExtend forms) do
+    modifyExpandIntroScopes' (ScopeSet.insert scope)
+    final <- syntaxExpand body'
+    pure final
   where
-    makeLetSyntaxBind :: ScopeId -> (StxIdt, Syntax) -> Expand (Binding, Syntax)
+    makeLetSyntaxBind :: ScopeId -> (StxIdt, Syntax) -> Expand (Name, Syntax)
     makeLetSyntaxBind sc (idt, stx) = do
-      let name = Symbol.toName idt.symbol
-      binding <- makeBinding idt sc
-      modifyExpandBinds' (BindStore.insert name binding)
-      pure (binding, stx)
-    
-    makeDatumTransform :: (Binding, Syntax) -> Expand (Name, Transform)
-    makeDatumTransform (binding, stx) = do
+      ph <- asks phase
+      name <- makeBinding (Syntax.scopeIdt ph sc idt)
+      pure (name, stx)
+
+    makeDatumTransform :: (Name, Syntax) -> Expand (Name, Transform)
+    makeDatumTransform (name, stx) = do
       value <- letSyntaxBindExpand stx
-      pure (Binding.toName binding, TfmDtm value)
+      pure (name, TfmDtm value)
 
 letSyntaxBindExpand :: Syntax -> Expand Datum
 letSyntaxBindExpand stx = do
-  ctx <- asks \ctx -> ctx {phase = succ (phase ctx)}
-  env <- gets \env -> env {intro'scopes = mempty}
-  liftEither $ runExpand ctx env do
+  prev'prunes <- state \env ->
+    (intro'scopes env, env {intro'scopes = ScopeSet.empty})
+
+  final <- local (\ctx -> ctx {phase = succ ctx.phase}) do
     stx' <- syntaxExpand stx
     expr <- parse (Parse.pSyntax stx')
+    let !_ = Debug.trace (show expr) ()
     evaluate expr
+
+  modifyExpandIntroScopes' (const prev'prunes)
+  pure final
 
 --------------------------------------------------------------------------------
 
 scopeSyntaxM :: ScopeId -> Syntax -> Expand Syntax
 scopeSyntaxM sc stx = asks \ctx -> Syntax.scope (phase ctx) sc stx
 
+scopeStxIdtM :: ScopeId -> StxIdt -> Expand StxIdt
+scopeStxIdtM sc idt = asks \ctx -> Syntax.scopeIdt (phase ctx) sc idt
+
 pruneSyntaxM :: Syntax -> Expand Syntax
 pruneSyntaxM stx = do
   ph <- asks phase
   sc <- gets intro'scopes
+  let !_ = Debug.trace ("pruning syntax: " ++ show stx ++ ", of scopes: " ++ show sc) ()
   pure (Syntax.prune ph sc stx)
 
 flipsSyntaxM :: ScopeId -> Syntax -> Expand Syntax
 flipsSyntaxM sc stx = asks \ctx -> Syntax.flips (phase ctx) sc stx
 
-newIntroScopeId :: Expand ScopeId
-newIntroScopeId = do
-  sc <- newScopeId
-  modifyExpandIntroScopes' (ScopeSet.insert sc)
-  pure sc
-
-newUseScopeId :: Expand ScopeId
-newUseScopeId = do
-  sc <- newScopeId
-  modifyExpandUseScopes' (ScopeSet.insert sc)
-  pure sc
-
-applyPrimitive :: CorePrim -> [Syntax] -> Expand Syntax 
-applyPrimitive prim stxs = do 
-  i'sc <- newIntroScopeId
-  u'sc <- newUseScopeId
-  stx' <- traverse (flipsSyntaxM i'sc <=< scopeSyntaxM u'sc) stxs
-  let application :: Expr
-      application = SExpApp (SExpVal (DatumPrim prim)) (map (SExpVal . DatumStx) stx')
-   in evaluateWithScope i'sc application >>= \case
-        DatumStx result -> do
-          final <- flipsSyntaxM i'sc result
-          syntaxExpand final
-        other -> do
-          let !_ = Debug.trace ("in applyTransformer: ") ()
-          throwError (ExnRecievedNotSyntax other)
-
 applyTransformer :: Expr -> [Syntax] -> Expand Syntax
 applyTransformer func stxs = do
-  i'sc <- newIntroScopeId
-  u'sc <- newUseScopeId
-  stx' <- traverse (flipsSyntaxM i'sc <=< scopeSyntaxM u'sc) stxs
-  let macro :: Expr
-      macro = SExpApp func (map (SExpVal . DatumStx) stx')
-   in evaluateWithScope i'sc macro >>= \case
-        DatumStx result -> do
-          final <- flipsSyntaxM i'sc result
-          syntaxExpand final
-        other -> do
-          let !_ = Debug.trace ("in applyTransformer: ") ()
-          throwError (ExnRecievedNotSyntax other)
+  intro <- newScopeId
+  usage <- newScopeId
+  stx' <- traverse (flipsSyntaxM intro <=< scopeSyntaxM usage) stxs
 
-makeBinder :: Symbol -> Expand Binder
-makeBinder symbol = do
-  gen <- newGenSymWith symbol
-  let name :: Name
-      name = GenSym.toName gen
-   in pure (BindName name)
+  modifyExpandIntroScopes' (ScopeSet.insert usage)
+  modifyExpandUsageScopes' (ScopeSet.insert intro)
 
-introPrimBinding :: Symbol -> ScopeId -> Expand Binding
+  let macro = SExpApp func (map (SExpVal . DatumStx) stx')
+  evaluateWithScope intro macro >>= \case
+    DatumStx result -> do
+      stx'e <- flipsSyntaxM intro result
+      final <- syntaxExpand stx'e
+      pure final
+    other -> do
+      throwError (ExnRecievedNotSyntax other)
+
+makeBinder :: Symbol -> Expand Name
+makeBinder symbol = fmap GenSym.toName (newGenSymWith symbol)
+
+introPrimBinding :: Symbol -> ScopeId -> Expand ()
 introPrimBinding symbol sc = do
   let name = Symbol.toName symbol
-  binding <- makePrimBinding symbol sc
-  modifyExpandBinds' (BindStore.insert name binding)
-  pure binding
+  let bind = Binding (ScopeSet.singleton sc) name
+  modifyExpandBinds' (BindStore.insert name bind)
 
-makePrimBinding :: Symbol -> ScopeId -> Expand Binding
-makePrimBinding symbol sc = do
-  binder <- makeBinder symbol
-  let scopes :: ScopeSet
-      scopes = ScopeSet.singleton sc
-   in pure (Binding scopes binder)
-
-makeBinding :: StxIdt -> ScopeId -> Expand Binding
-makeBinding idt sc = do
+makeBinding :: StxIdt -> Expand Name
+makeBinding idt = do
   ph <- asks phase
   binder <- makeBinder idt.symbol
-  let scopes :: ScopeSet
-      scopes = MultiScopeSet.index ph idt.context.multiscope
-   in pure (Binding.scope sc (Binding scopes binder))
+  let scps = MultiScopeSet.index ph idt.context.multiscope
+  let bind = Binding scps binder
+  modifyExpandBinds' (BindStore.insert (Symbol.toName idt.symbol) bind)
+  pure bind.binder

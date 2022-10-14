@@ -41,7 +41,6 @@ module Opal.Core
 
     -- * Primitives
     CoreForm (CoreFormLambda, CoreFormLetSyntax, CoreFormQuote, CoreFormSyntax),
-    primToSymbol,
 
     -- ** Primitive Operations
     primStxExpr,
@@ -58,8 +57,8 @@ import Opal.Common.Name (Name)
 import Opal.Core.Atom (Atom (Atom, Core))
 import Opal.Core.CoreForm
   ( CoreForm (CoreFormLambda, CoreFormLetSyntax, CoreFormQuote, CoreFormSyntax),
-    primToSymbol,
   )
+import Opal.Core.CoreForm qualified as CoreForm
 import Opal.Core.Datum
   ( Clause (Clause, body, datum),
     Datum
@@ -115,5 +114,5 @@ primStxExpr (StxList _ stxs) = DatumList (map DatumStx stxs)
 -- @since 1.0.0
 primMakeStx :: Atom -> Syntax -> Syntax
 primMakeStx (Atom name) stx = StxAtom stx.context name
-primMakeStx (Core form) stx = StxAtom stx.context (primToSymbol form)
+primMakeStx (Core form) stx = StxAtom stx.context (CoreForm.toSymbol form)
 {-# INLINE primMakeStx #-}

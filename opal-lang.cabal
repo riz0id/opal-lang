@@ -136,28 +136,25 @@ executable opal
     Opal.Run.Command
     Opal.Run.Parse
 
--- test-suite test
---   import:         common
---   type:           exitcode-stdio-1.0
---   hs-source-dirs: opal-lang/test
---   main-is:        Main.hs
+test-suite test
+  import:         common
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is:        Test.hs
 
---   ghc-options:
---     -threaded
---     -rtsopts
---     "-with-rtsopts=-N"
+  ghc-options:
+    -threaded
+    -rtsopts
+    "-with-rtsopts=-N"
 
---   build-depends:
---     , hedgehog
---     , opal-lang
---     , tasty
---     , tasty-hedgehog 
+  build-depends:
+    , hedgehog
+    , opal
+    , tasty
+    , tasty-hedgehog 
 
---   other-modules: 
---     Test.Compat
---     Test.Core
---     Test.Common.Gen
---     Test.Expand
---     Test.Expand.Parse
---     Test.Expand.Syntax
---     Test.Expand.Syntax.Gen
+  other-modules: 
+    Test.Compat
+    Test.Core
+    Test.Expand
+    Test.Expand.Syntax

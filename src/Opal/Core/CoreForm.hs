@@ -6,8 +6,8 @@ module Opal.Core.CoreForm
         CoreFormQuote,
         CoreFormSyntax
       ),
-    primToSymbol,
-    primToName,
+    toSymbol,
+    toName,
     primSourceSpan,
   )
 where
@@ -36,20 +36,20 @@ data CoreForm
 -- | TODO
 --
 -- @since 1.0.0
-primToSymbol :: CoreForm -> Symbol
-primToSymbol prim = Symbol.Symbol (primToName prim)
+toSymbol :: CoreForm -> Symbol
+toSymbol prim = Symbol.Symbol (toName prim)
 
 -- | TODO
 --
 -- @since 1.0.0
-primToName :: CoreForm -> Name
-primToName CoreFormLambda = Name.pack "lambda"
-primToName CoreFormLetSyntax = Name.pack "let-syntax"
-primToName CoreFormQuote = Name.pack "quote"
-primToName CoreFormSyntax = Name.pack "syntax"
+toName :: CoreForm -> Name
+toName CoreFormQuote = Name.pack "quote"
+toName CoreFormSyntax = Name.pack "syntax"
+toName CoreFormLambda = Name.pack "lambda"
+toName CoreFormLetSyntax = Name.pack "let-syntax"
 
 -- | TODO
 --
 -- @since 1.0.0
 primSourceSpan :: CoreForm -> Int
-primSourceSpan prim = Symbol.size (primToSymbol prim)
+primSourceSpan prim = Symbol.size (toSymbol prim)

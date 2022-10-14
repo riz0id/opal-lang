@@ -2,14 +2,10 @@
 
 module Opal.Expand.Syntax.Binding
   ( -- * TODO
-    Binder (BindCore, BindName),
-
-    -- * TODO
     Binding (Binding, binder, scopes),
 
     -- * Construction
-    makePrimBinding,
-    toName,
+    makeCoreFormBinding,
 
     -- * Scope Set Operations
     scope,
@@ -49,19 +45,9 @@ import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
 -- | TODO
 --
 -- @since 1.0.0
-data Binder
-  = BindCore CoreForm
-  | BindName Name
-  deriving (Data, Eq, Ord, Show)
-
---------------------------------------------------------------------------------
-
--- | TODO
---
--- @since 1.0.0
 data Binding = Binding
   { scopes :: ScopeSet
-  , binder :: Binder
+  , binder :: Name
   }
   deriving (Data, Eq, Ord, Show)
 
@@ -70,17 +56,8 @@ data Binding = Binding
 -- | TODO
 --
 -- @since 1.0.0
-makePrimBinding :: CoreForm -> Binding
-makePrimBinding prim = Binding (ScopeSet.singleton 0) (BindCore prim)
-
--- | TODO
---
--- @since 1.0.0
-toName :: Binding -> Name
-toName binding =
-  case binding.binder of
-    BindCore form -> CoreForm.primToName form
-    BindName name -> name
+makeCoreFormBinding :: CoreForm -> Binding
+makeCoreFormBinding form = Binding (ScopeSet.singleton 0) (CoreForm.toName form)
 
 -- Scope Set Operations --------------------------------------------------------
 

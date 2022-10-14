@@ -32,7 +32,7 @@ import Opal.Common.Name (Name)
 
 import Opal.Core.CoreForm (CoreForm)
 import Opal.Core.CoreForm qualified as CoreForm
-import Opal.Expand.Syntax.Binding (Binder, Binding)
+import Opal.Expand.Syntax.Binding (Binding)
 import Opal.Expand.Syntax.Binding qualified as Binding
 import Opal.Expand.Syntax.ScopeSet (ScopeSet)
 
@@ -42,7 +42,7 @@ import Opal.Expand.Syntax.ScopeSet (ScopeSet)
 --
 -- @since 1.0.0
 newtype BindStore :: Type where
-  BindStore :: Map Name (Map ScopeSet Binder) -> BindStore
+  BindStore :: Map Name (Map ScopeSet Name) -> BindStore
   deriving (Data, Eq, Ord, Show)
 
 -- | @since 1.0.0
@@ -102,15 +102,18 @@ index name (BindStore kxs) =
 --
 -- @since 1.0.0
 insert :: Name -> Binding -> BindStore -> BindStore
-insert name binding (BindStore kxs) =
+insert name bind (BindStore kxs) =
   BindStore (Map.alter alter name kxs)
   where
-    alter :: Maybe (Map ScopeSet Binder) -> Maybe (Map ScopeSet Binder)
-    alter Nothing = Just (Map.singleton binding.scopes binding.binder)
-    alter (Just bindings) = Just (Map.insert binding.scopes binding.binder bindings)
+    alter :: Maybe (Map ScopeSet Name) -> Maybe (Map ScopeSet Name)
+    alter Nothing = 
+      Just (Map.singleton bind.scopes bind.binder)
+    alter (Just binds) = 
+      -- Just (Map.insert bind.scopes bind.binder bindings)
+      error ("overwriting existing binding: " ++ show binds ++ ", in: " ++ show kxs)
 
 -- | TODO
 --
 -- @since 1.0.0
 insertCoreForm :: CoreForm -> BindStore -> BindStore
-insertCoreForm prim = insert (CoreForm.primToName prim) (Binding.makePrimBinding prim)
+insertCoreForm form = insert (CoreForm.toName form) (Binding.makeCoreFormBinding form)

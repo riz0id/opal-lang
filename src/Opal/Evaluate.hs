@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module Opal.Evaluate
   ( -- * Evaluation
@@ -17,10 +18,10 @@ module Opal.Evaluate
     EvalExn (EvalExnUnbound, EvalExnCallLit, EvalExnArity),
 
     -- ** Evaluator Context
-    EvalCtx (EvalCtx, phase, scope, bindEnv, value'env),
+    EvalCtx (EvalCtx, phase, intro'scope, bindEnv, value'env),
 
     -- ** Evaluator Store
-    EvalStore (EvalStore, bindstore, prune'intros, prune'uses),
+    EvalStore (EvalStore, bindstore, prune'scopes, usage'scopes),
 
     -- ** Operations
     eval,
@@ -54,11 +55,11 @@ import Opal.Core
     Expr,
     SExp (SExpApp, SExpVal, SExpVar),
   )
-
 import Opal.Core.CorePrim (CorePrim (CorePrimSyntaxLocalValue))
+
 import Opal.Expand.Resolve (ResolveError)
 import Opal.Expand.Resolve qualified as Resolve
-import Opal.Expand.Syntax (StxIdt (StxIdt), Syntax (StxAtom, StxList))
+import Opal.Expand.Syntax (StxIdt (StxIdt), Syntax (StxAtom))
 import Opal.Expand.Syntax.BindStore (BindStore)
 import Opal.Expand.Syntax.BindStore qualified as BindStore
 import Opal.Expand.Syntax.Binding (Binding)
@@ -66,8 +67,11 @@ import Opal.Expand.Syntax.Binding qualified as Binding
 import Opal.Expand.Syntax.MultiScopeSet (Phase (Phase))
 import Opal.Expand.Syntax.ScopeSet (ScopeId, ScopeSet)
 import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
-import Opal.Expand.Transform (Transform (TfmDtm))
-import qualified Debug.Trace as Debug
+import Opal.Expand.Transform
+  ( Transform (TfmDtm, TfmVar),
+  )
+
+import Opal.Parse (ParseError)
 
 -- Evaluation ------------------------------------------------------------------
 
@@ -207,6 +211,7 @@ instance PrimMonad (Eval s) where
 data EvalExn
   = EvalExnUnbound {-# UNPACK #-} !Name (Map Name Datum)
   | EvalExnResolve ResolveError
+  | EvalExnParse ParseError
   | EvalExnCallLit Expr
   | EvalExnArity {-# UNPACK #-} !Int {-# UNPACK #-} !Int Expr
   | EvalExnCallPrim CoreForm [Datum]
@@ -225,7 +230,7 @@ instance Exception EvalExn where
 data EvalCtx s = EvalCtx
   { phase :: {-# UNPACK #-} !Phase
   -- ^ TODO
-  , scope :: {-# UNPACK #-} !(Maybe ScopeId)
+  , intro'scope :: {-# UNPACK #-} !(Maybe ScopeId)
   -- ^ TODO
   , bindEnv :: Map Name Transform
   -- ^ TODO
@@ -284,9 +289,9 @@ extsEvalEnv (name : names) (val : vals) ctx = do
 data EvalStore = EvalStore
   { bindstore :: {-# UNPACK #-} !BindStore
   -- ^ TODO
-  , prune'intros :: ScopeSet
+  , prune'scopes :: ScopeSet
   -- ^ TODO
-  , prune'uses :: ScopeSet
+  , usage'scopes :: ScopeSet
   -- ^ TODO
   }
   deriving (Eq, Ord, Show)
@@ -323,9 +328,12 @@ evalDatum dtm = pure dtm
 --
 -- @since 1.0.0
 evalCall :: Expr -> [Expr] -> Eval s Datum
-evalCall (SExpVar var) args = do
-  val <- getVariable var
-  evalCallProc val args
+evalCall (SExpVar var) args
+  | var == "syntax-local-value" = do
+      evallCallPrimProc CorePrimSyntaxLocalValue args
+  | otherwise = do
+      val <- getVariable var
+      evalCallProc val args
 evalCall (SExpVal val) args =
   evalCallProc val args
 evalCall (SExpApp fun args') args = do
@@ -356,20 +364,19 @@ evalCallProc val args = do
 -- @since 1.0.0
 evallCallPrimProc :: CorePrim -> [Expr] -> Eval s Datum
 evallCallPrimProc CorePrimSyntaxLocalValue args = do
-  let !_ = Debug.trace (show args) ()
-  args' <- traverse eval args
-  case args' of
-    [DatumStx (StxList _ [_, StxAtom ctx atom])] -> do
-      store <- gets bindstore
-      let !_ = Debug.trace (show store) ()
-      binding <- resolve (StxIdt ctx atom)
-      env <- asks bindEnv
-      undefined
-      -- let name = Binding.toName binding
-      -- case Map.lookup name env of
-      --   Nothing -> error ("evaluation error: syntax-local-value missing transformer to " ++ show atom)
-      --   Just (TfmDtm val) -> pure val
-      --   Just tfm -> undefined
+  case args of
+    [arg] -> do
+      arg' <- eval arg
+      case arg' of
+        DatumStx (StxAtom ctx atom) -> do
+          bind <- resolve (StxIdt ctx atom)
+          env <- asks bindEnv
+          case Map.lookup bind.binder env of
+            Nothing -> error ("evaluation error: syntax-local-value referencing transformer not present in compile-time environment: " ++ show (StxAtom ctx atom))
+            Just (TfmDtm val) -> pure val
+            Just (TfmVar idt) -> pure (DatumStx idt.syntax)
+            Just other -> undefined
+        other -> error ("evaluation error: syntax-local-value recieved value that was not an identifier: " ++ show other)
     _ -> do
       let expr = SExpApp (SExpVal $ DatumPrim $ CorePrimSyntaxLocalValue) args
       error ("evaluation error: bad arguments to syntax-local-value " ++ show expr)
