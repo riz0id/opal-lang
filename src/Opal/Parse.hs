@@ -23,6 +23,8 @@ module Opal.Parse
 
     -- * TODO
     pSyntax,
+    pVariable,
+    pStxIdt,
     pStxLambda,
     pStxLetSyntax,
     pStxLetSyntaxBinds,
@@ -30,6 +32,8 @@ module Opal.Parse
     pStxFormalIdts,
   )
 where
+
+import Control.Lens ((^?))
 
 import Control.Monad.Except (MonadError, catchError, throwError)
 import Control.Monad.Reader (MonadReader, ask, asks, local)
@@ -45,21 +49,19 @@ import Opal.Common.Symbol (Symbol)
 import Opal.Common.Symbol qualified as Symbol
 
 import Opal.Core
-  ( Datum (DatumAtom, DatumList, DatumPrim, DatumProc, DatumStx),
+  ( Datum (DatumCore, DatumProc, DatumStx),
     Expr,
     SExp (SExpApp, SExpVal, SExpVar),
     syntaxToDatum,
   )
-import Opal.Core qualified as Core
-import Opal.Core.Datum (Clause (Clause), Datum (DatumCase), Procedure (Procedure))
-import Opal.Core.Prim (Prim (PrimCase, PrimClauseDef, PrimLambda, PrimQuote, PrimSyntax))
+import Opal.Core.CoreForm (CoreForm (CoreFormLambda, CoreFormQuote, CoreFormSyntax))
 
 import Opal.Expand.Resolve qualified as Resolve
-import Opal.Expand.Syntax (StxCtx, StxIdt (StxIdt), Syntax (StxAtom, StxList))
+import Opal.Expand.Syntax (StxCtx, StxIdt (StxIdt), Syntax (StxAtom, StxList), stxatom)
 import Opal.Expand.Syntax qualified as Syntax
 import Opal.Expand.Syntax.BindStore (BindStore)
 import Opal.Expand.Syntax.BindStore qualified as BindStore
-import Opal.Expand.Syntax.Binding (Binder (BindName, BindPrim))
+import Opal.Expand.Syntax.Binding (Binder (BindCore, BindName))
 import Opal.Expand.Syntax.Binding qualified as Binding
 import Opal.Expand.Syntax.MultiScopeSet (Phase (Phase))
 import Opal.Expand.Syntax.ScopeSet (ScopeId (ScopeId))
@@ -157,7 +159,7 @@ data ParseError
   | -- | TODO
     ExnParseClause Syntax
   | -- | TODO
-    ExnParseLetSyntax Syntax
+    ExnParseLetSyntax [Syntax]
   | -- | TODO
     ExnParseLetSyntaxBind Syntax
   | -- | TODO
@@ -202,16 +204,26 @@ resolve ctx symbol = do
 -- @since 1.0.0
 pSyntax :: Syntax -> Parse Expr
 pSyntax (StxAtom ctx atom) = pStxAtom ctx atom
-pSyntax (StxList ctx stxs) = case stxs of 
+pSyntax (StxList ctx stxs) = case stxs of
   [] -> throwError (ExnMissingProc (StxList ctx stxs))
   stx : stxs' -> pStxList stx stxs'
 
 -- | TODO
 --
 -- @since 1.0.0
+pVariable :: Syntax -> Parse Name
+pVariable stx = do
+  idt <- pStxIdt stx
+  pure (Symbol.toName idt.symbol)
+
+-- | TODO
+--
+-- @since 1.0.0
 pStxIdt :: Syntax -> Parse StxIdt
-pStxIdt (StxAtom ctx atom) = pure (StxIdt ctx atom)
-pStxIdt stx = throwError (ExnParseStxIdt stx)
+pStxIdt stx =
+  case stx ^? stxatom of
+    Nothing -> throwError (ExnParseStxIdt stx)
+    Just idt -> pure idt
 
 -- | TODO
 --
@@ -220,7 +232,7 @@ pStxAtom :: StxCtx -> Symbol -> Parse Expr
 pStxAtom ctx atom = do
   bind <- resolve ctx atom
   case bind of
-    BindPrim prim -> pure (SExpVal $ DatumPrim prim)
+    BindCore prim -> pure (SExpVal $ DatumCore prim)
     BindName name -> pure (SExpVar name)
 
 -- | TODO
@@ -230,16 +242,17 @@ pStxList :: Syntax -> [Syntax] -> Parse Expr
 pStxList (StxAtom ctx atom) stxs = do
   bind <- resolve ctx atom
   case bind of
-    BindPrim PrimCase -> do
-      match <- pStxCase stxs
-      pure (SExpVal match)
-    BindPrim PrimLambda -> do
-      func <- pStxLambda stxs
-      pure (SExpVal $ DatumProc func.formals func.body)
-    BindPrim PrimSyntax -> pStxSyntax stxs
-    BindPrim PrimQuote -> pStxQuote stxs
-    BindPrim prim -> do
-      let func = SExpVal (DatumPrim prim)
+    BindCore CoreFormLambda -> do
+      case stxs of
+        [stx1, stx2] -> do
+          args <- pStxFormals stx1
+          func <- pSyntax stx2
+          pure (SExpVal $ DatumProc args func)
+        _ -> throwError (ExnParseLambda stxs)
+    BindCore CoreFormSyntax -> pStxSyntax stxs
+    BindCore CoreFormQuote -> pStxQuote stxs
+    BindCore prim -> do
+      let func = SExpVal (DatumCore prim)
       args <- traverse pSyntax stxs
       pure (SExpApp func args)
     BindName name -> do
@@ -254,11 +267,10 @@ pStxList (StxList ctx stx) stxs = do
 -- | TODO
 --
 -- @since 1.0.0
-pStxLambda :: [Syntax] -> Parse Procedure
-pStxLambda [stx1, stx2] = do
-    vars <- pStxFormals stx1 
-    body <- pSyntax stx2
-    pure (Procedure vars body)
+pStxLambda :: [Syntax] -> Parse ([StxIdt], Syntax)
+pStxLambda [stx, body] = do
+  vars <- pStxFormalIdts stx
+  pure (vars, body)
 pStxLambda stxs = throwError (ExnParseLambda stxs)
 
 -- | TODO
@@ -282,54 +294,12 @@ pStxFormalIdts (StxList ctx vars) = do
 -- | TODO
 --
 -- @since 1.0.0
-pStxCase :: [Syntax] -> Parse Datum
-pStxCase [] = throwError (ExnParseCase [])
-pStxCase (stx : stxs) = do
-  scrut <- pSyntax stx
-  cases <- traverse pStxClause stxs 
-  pure (DatumCase scrut cases)
-
--- | TODO
---
--- @since 1.0.0
-pStxClause :: Syntax -> Parse Clause
-pStxClause (StxList _ [StxAtom ctx atom, stx]) = do
-  bind <- resolve ctx atom
-  if bind == BindPrim PrimClauseDef
-    then do
-      let pat = DatumPrim PrimClauseDef
-      body <- pSyntax stx
-      pure (Clause pat body)
-    else throwError (ExnParseClause $ StxAtom ctx atom)
-pStxClause (StxList _ [StxList _ stx1, stx2]) = do
-  pats <- traverse pStxPattern stx1
-  body <- pSyntax stx2
-  pure (Clause (DatumList pats) body)
-pStxClause stx =
-  throwError (ExnParseClause stx)
-
--- | TODO
---
--- @since 1.0.0
-pStxPattern :: Syntax -> Parse Datum
-pStxPattern (StxAtom ctx atom) = do
-  bind <- resolve ctx atom
-  case bind of
-    BindPrim prim -> pure (DatumPrim prim)
-    BindName name -> pure (DatumAtom $ Symbol.Symbol name)
-pStxPattern (StxList _ stxs) = do
-  dtms <- traverse pStxPattern stxs
-  pure (DatumList dtms)
-
--- | TODO
---
--- @since 1.0.0
-pStxLetSyntax :: Syntax -> Parse ([(StxIdt, Syntax)], Syntax)
-pStxLetSyntax (StxList _ [stx, stx']) = do 
+pStxLetSyntax :: [Syntax] -> Parse ([(StxIdt, Syntax)], Syntax)
+pStxLetSyntax [stx, stx'] = do
   bindings <- pStxLetSyntaxBinds stx
   pure (bindings, stx')
-pStxLetSyntax stx = 
-  throwError (ExnParseLetSyntax stx)
+pStxLetSyntax stxs =
+  throwError (ExnParseLetSyntax stxs)
 
 -- | TODO
 --

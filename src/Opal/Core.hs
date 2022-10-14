@@ -12,12 +12,13 @@ module Opal.Core
 
     -- * Datums
     Datum
-      ( DatumCase,
-        DatumStx,
-        DatumAtom,
-        DatumProc,
+      ( DatumAtom,
+        DatumCase,
+        DatumCore,
         DatumPrim,
-        DatumList
+        DatumList,
+        DatumProc,
+        DatumStx
       ),
 
     -- ** Construction
@@ -36,23 +37,10 @@ module Opal.Core
     Clause (Clause, datum, body),
 
     -- * Atoms
-    Atom (Atom, Prim),
+    Atom (Atom, Core),
 
     -- * Primitives
-    Prim
-      ( PrimBoolFalse,
-        PrimBoolTrue,
-        PrimCase,
-        PrimClauseDef,
-        PrimStxExpr,
-        PrimMakeStx,
-        PrimSetMut,
-        PrimLambda,
-        PrimLetSyntax,
-        PrimQuote,
-        PrimSyntax,
-        PrimVoid
-      ),
+    CoreForm (CoreFormLambda, CoreFormLetSyntax, CoreFormQuote, CoreFormSyntax),
     primToSymbol,
 
     -- ** Primitive Operations
@@ -67,33 +55,28 @@ import Data.Kind (Type)
 
 import Opal.Common.Name (Name)
 
-import Opal.Core.Atom (Atom (Atom, Prim))
+import Opal.Core.Atom (Atom (Atom, Core))
+import Opal.Core.CoreForm
+  ( CoreForm (CoreFormLambda, CoreFormLetSyntax, CoreFormQuote, CoreFormSyntax),
+    primToSymbol,
+  )
 import Opal.Core.Datum
   ( Clause (Clause, body, datum),
-    Datum (DatumAtom, DatumCase, DatumList, DatumPrim, DatumProc, DatumStx),
+    Datum
+      ( DatumAtom,
+        DatumCase,
+        DatumCore,
+        DatumList,
+        DatumPrim,
+        DatumProc,
+        DatumStx
+      ),
     Procedure (Procedure, body, formals),
     atomToDatum,
     syntaxToDatum,
     toAtom,
     toSymbol,
     toSyntax,
-  )
-import Opal.Core.Prim
-  ( Prim
-      ( PrimBoolFalse,
-        PrimBoolTrue,
-        PrimCase,
-        PrimClauseDef,
-        PrimLambda,
-        PrimMakeStx,
-        PrimSetMut,
-        PrimStxExpr,
-        PrimLetSyntax,
-        PrimSyntax,
-        PrimQuote,
-        PrimVoid
-      ),
-    primToSymbol,
   )
 import Opal.Core.SExp (SExp (SExpApp, SExpVal, SExpVar))
 
@@ -131,6 +114,6 @@ primStxExpr (StxList _ stxs) = DatumList (map DatumStx stxs)
 --
 -- @since 1.0.0
 primMakeStx :: Atom -> Syntax -> Syntax
-primMakeStx (Prim prim) stx = StxAtom stx.context (primToSymbol prim)
 primMakeStx (Atom name) stx = StxAtom stx.context name
+primMakeStx (Core form) stx = StxAtom stx.context (primToSymbol form)
 {-# INLINE primMakeStx #-}

@@ -13,7 +13,7 @@ module Opal.Expand.Syntax.BindStore
 
     -- * Insert
     insert,
-    insertPrim,
+    insertCoreForm,
   )
 where
 
@@ -30,9 +30,10 @@ import GHC.Exts (IsList, Item, fromList, toList)
 
 import Opal.Common.Name (Name)
 
-import Opal.Core.Prim (Prim)
-import Opal.Core.Prim qualified as Prim
-import Opal.Expand.Syntax.Binding (Binder, Binding (Binding, binder, scopes), makePrimBinding)
+import Opal.Core.CoreForm (CoreForm)
+import Opal.Core.CoreForm qualified as CoreForm
+import Opal.Expand.Syntax.Binding (Binder, Binding)
+import Opal.Expand.Syntax.Binding qualified as Binding
 import Opal.Expand.Syntax.ScopeSet (ScopeSet)
 
 --------------------------------------------------------------------------------
@@ -76,17 +77,13 @@ empty = BindStore Map.empty
 -- @since 1.0.0
 coreSyntax :: BindStore
 coreSyntax =
-  let forms :: [Prim]
+  let forms :: [CoreForm]
       forms =
-        [ Prim.PrimCase
-        , Prim.PrimClauseDef
-        , Prim.PrimLambda
-        , Prim.PrimLetSyntax
-        , Prim.PrimSyntax
-        , Prim.PrimBoolTrue
-        , Prim.PrimBoolFalse
+        [ CoreForm.CoreFormLambda
+        , CoreForm.CoreFormLetSyntax
+        , CoreForm.CoreFormSyntax
         ]
-   in foldr insertPrim empty forms
+   in foldr insertCoreForm empty forms
 
 -- Index -----------------------------------------------------------------------
 
@@ -97,7 +94,7 @@ index :: Name -> BindStore -> Set Binding
 index name (BindStore kxs) =
   case Map.lookup name kxs of
     Nothing -> Set.empty
-    Just rx -> Map.foldrWithKey' (\sc -> Set.insert . Binding sc) Set.empty rx
+    Just rx -> Map.foldrWithKey' (\sc -> Set.insert . Binding.Binding sc) Set.empty rx
 
 -- Insert ----------------------------------------------------------------------
 
@@ -115,5 +112,5 @@ insert name binding (BindStore kxs) =
 -- | TODO
 --
 -- @since 1.0.0
-insertPrim :: Prim -> BindStore -> BindStore
-insertPrim prim = insert (Prim.primToName prim) (makePrimBinding prim)
+insertCoreForm :: CoreForm -> BindStore -> BindStore
+insertCoreForm prim = insert (CoreForm.primToName prim) (Binding.makePrimBinding prim)

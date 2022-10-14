@@ -29,6 +29,7 @@ import Opal.Run.Parse qualified as Parse
 import qualified Opal.Evaluate as Eval
 import qualified Opal.Expand as Expand
 import qualified Data.Text as Text
+import Opal.Expand.Syntax.MultiScopeSet (Phase(Phase))
 
 --------------------------------------------------------------------------------
 

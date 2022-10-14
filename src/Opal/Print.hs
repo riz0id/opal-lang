@@ -37,13 +37,13 @@ import Opal.Common.Name qualified as Name
 import Opal.Common.Symbol (Symbol)
 
 import Opal.Core
-  ( Datum (DatumAtom, DatumList, DatumPrim, DatumProc, DatumStx),
+  ( CoreForm,
+    Datum (DatumAtom, DatumCore, DatumList, DatumProc, DatumStx),
     Expr,
-    Prim (PrimBoolFalse, PrimBoolTrue),
     SExp (SExpApp, SExpVal, SExpVar),
   )
-import Opal.Core.Datum (Clause (Clause), Datum (DatumCase))
-import Opal.Core.Prim qualified as Prim
+import Opal.Core.CoreForm qualified as CoreForm
+import Opal.Core.Datum (Clause (Clause), Datum (DatumBool, DatumCase))
 
 import Opal.Expand.Syntax (StxCtx, Syntax (StxAtom, StxList))
 import Opal.Expand.Syntax qualified as Syntax
@@ -98,7 +98,8 @@ docSExpApp fun args = Emit.parens (Emit.hsep (map docSExp (fun : args)))
 docDatum :: Datum -> Doc a
 docDatum (DatumStx stx) = docSyntax stx
 docDatum (DatumAtom atom) = emit atom
-docDatum (DatumPrim prim) = docPrim prim
+docDatum (DatumBool bool) = if bool then "#t" else "#f"
+docDatum (DatumCore form) = docCoreForm form
 docDatum (DatumProc vars body) =
   "'(λ ("
     <> Emit.hsep (map emit vars)
@@ -125,10 +126,8 @@ docClause (Clause pat body) = "'" <> Emit.bracks (docDatum pat <+> docSExp body)
 -- | TODO
 --
 -- @since 1.0.0
-docPrim :: Prim -> Doc a
-docPrim PrimBoolFalse = "#f"
-docPrim PrimBoolTrue = "#t"
-docPrim prim = emit (Prim.primToSymbol prim)
+docCoreForm :: CoreForm -> Doc a
+docCoreForm prim = emit (CoreForm.primToSymbol prim)
 
 -- TODO ------------------------------------------------------------------------
 

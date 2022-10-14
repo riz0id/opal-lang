@@ -1,8 +1,17 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 
-module Opal.Core.Datum 
+module Opal.Core.Datum
   ( -- * Datums
-    Datum (DatumStx, DatumAtom, DatumProc, DatumCase, DatumPrim, DatumList),
+    Datum
+      ( DatumStx,
+        DatumAtom,
+        DatumCore,
+        DatumPrim,
+        DatumBool,
+        DatumProc,
+        DatumCase,
+        DatumList
+      ),
 
     -- * Construction
     atomToDatum,
@@ -13,12 +22,15 @@ module Opal.Core.Datum
     toAtom,
     toSymbol,
 
-    -- * Procedures 
+    -- * Predicates
+    isProcedure,
+
+    -- * Procedures
     Procedure (Procedure, formals, body),
 
     -- * Case Clauses
     Clause (Clause, datum, body),
-  )  
+  )
 where
 
 import Data.Data (Data)
@@ -28,21 +40,24 @@ import Data.Data (Data)
 import Opal.Common.Name (Name)
 import Opal.Common.Symbol (Symbol)
 
+import Opal.Core.Atom (Atom (Atom, Core))
+import Opal.Core.CoreForm (CoreForm)
 import Opal.Core.SExp (SExp)
-import Opal.Core.Atom (Atom (Atom, Prim))
-import Opal.Core.Prim (Prim)
 
 import Opal.Expand.Syntax (Syntax (StxAtom, StxList))
+import Opal.Core.CorePrim (CorePrim)
 
 -- Datums ----------------------------------------------------------------------
 
 -- | TODO
 --
 -- @since 1.0.0
-data Datum 
+data Datum
   = DatumStx {-# UNPACK #-} !Syntax
   | DatumAtom {-# UNPACK #-} !Symbol
-  | DatumPrim Prim
+  | DatumBool Bool
+  | DatumCore CoreForm
+  | DatumPrim CorePrim
   | DatumProc [Name] (SExp Datum)
   | DatumCase (SExp Datum) [Clause]
   | DatumList [Datum]
@@ -55,7 +70,7 @@ data Datum
 -- @since 1.0.0
 atomToDatum :: Atom -> Datum
 atomToDatum (Atom name) = DatumAtom name
-atomToDatum (Prim prim) = DatumPrim prim
+atomToDatum (Core prim) = DatumCore prim
 
 -- | TODO
 --
@@ -69,7 +84,7 @@ syntaxToDatum (StxList _ stxs) = DatumList (map syntaxToDatum stxs)
 -- | TODO
 --
 -- @since 1.0.0
-toSyntax :: Datum -> Maybe Syntax 
+toSyntax :: Datum -> Maybe Syntax
 toSyntax (DatumStx stx) = Just stx
 toSyntax _ = Nothing
 {-# INLINE toSyntax #-}
@@ -79,7 +94,7 @@ toSyntax _ = Nothing
 -- @since 1.0.0
 toAtom :: Datum -> Maybe Atom
 toAtom (DatumAtom name) = Just (Atom name)
-toAtom (DatumPrim prim) = Just (Prim prim)
+toAtom (DatumCore form) = Just (Core form)
 toAtom _ = Nothing
 {-# INLINE toAtom #-}
 
@@ -87,17 +102,26 @@ toAtom _ = Nothing
 --
 -- @since 1.0.0
 toSymbol :: Datum -> Maybe Symbol
-toSymbol val = do 
+toSymbol val = do
   Atom name <- toAtom val
   pure name
 {-# INLINE toSymbol #-}
+
+-- Predicates ------------------------------------------------------------------
+
+-- | TODO
+--
+-- @since 1.0.0
+isProcedure :: Datum -> Bool
+isProcedure DatumProc {} = True
+isProcedure _ = False
 
 -- Procedures ------------------------------------------------------------------
 
 -- | TODO
 --
 -- @since 1.0.0
-data Procedure = Procedure 
+data Procedure = Procedure
   { formals :: [Name]
   , body :: SExp Datum
   }
@@ -108,8 +132,8 @@ data Procedure = Procedure
 -- | TODO
 --
 -- @since 1.0.0
-data Clause = Clause 
-  { datum :: Datum 
+data Clause = Clause
+  { datum :: Datum
   , body :: SExp Datum
   }
   deriving (Data, Eq, Ord, Show)

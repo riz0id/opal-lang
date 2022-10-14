@@ -2,19 +2,21 @@
 
 module Opal.Expand.Syntax.Binding
   ( -- * TODO
-    Binder (BindPrim, BindName),
+    Binder (BindCore, BindName),
 
     -- * TODO
     Binding (Binding, binder, scopes),
 
     -- * Construction
     makePrimBinding,
+    toName,
 
     -- * Scope Set Operations
+    scope,
     overlaps,
     superset,
 
-    -- * Predicates 
+    -- * Predicates
     subset,
 
     -- * Folds
@@ -34,10 +36,12 @@ import Prelude hiding (maximum)
 
 --------------------------------------------------------------------------------
 
-import Opal.Core.Prim (Prim)
 import Opal.Common.Name (Name)
 
-import Opal.Expand.Syntax.ScopeSet (ScopeSet)
+import Opal.Core.CoreForm (CoreForm)
+import Opal.Core.CoreForm qualified as CoreForm
+
+import Opal.Expand.Syntax.ScopeSet (ScopeId, ScopeSet)
 import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
 
 --------------------------------------------------------------------------------
@@ -45,8 +49,8 @@ import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
 -- | TODO
 --
 -- @since 1.0.0
-data Binder 
-  = BindPrim Prim 
+data Binder
+  = BindCore CoreForm
   | BindName Name
   deriving (Data, Eq, Ord, Show)
 
@@ -66,10 +70,25 @@ data Binding = Binding
 -- | TODO
 --
 -- @since 1.0.0
-makePrimBinding :: Prim -> Binding 
-makePrimBinding prim = Binding (ScopeSet.singleton 0) (BindPrim prim)  
-  
+makePrimBinding :: CoreForm -> Binding
+makePrimBinding prim = Binding (ScopeSet.singleton 0) (BindCore prim)
+
+-- | TODO
+--
+-- @since 1.0.0
+toName :: Binding -> Name
+toName binding =
+  case binding.binder of
+    BindCore form -> CoreForm.primToName form
+    BindName name -> name
+
 -- Scope Set Operations --------------------------------------------------------
+
+-- | TODO
+--
+-- @since 1.0.0
+scope :: ScopeId -> Binding -> Binding
+scope sc binding = binding {scopes = ScopeSet.insert sc binding.scopes}
 
 -- | TODO
 --
@@ -89,7 +108,7 @@ superset a b = ScopeSet.superset (scopes a) (scopes b)
 --
 -- @since 1.0.0
 subset :: Binding -> ScopeSet -> Bool
-subset binding = ScopeSet.subset (scopes binding) 
+subset binding = ScopeSet.subset (scopes binding)
 
 -- Folds -----------------------------------------------------------------------
 
@@ -111,6 +130,6 @@ maximum bindings = runST do
         writeMutVar mutMaxs (Set.singleton binding)
 
   result <- readMutVar mutMaxs
-  case Set.maxView result of 
+  case Set.maxView result of
     Nothing -> pure Nothing
     Just rx -> pure (Just $ fst rx)

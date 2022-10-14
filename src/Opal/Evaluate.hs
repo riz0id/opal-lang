@@ -1,4 +1,5 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -16,17 +17,15 @@ module Opal.Evaluate
     EvalExn (EvalExnUnbound, EvalExnCallLit, EvalExnArity),
 
     -- ** Evaluator Context
-    EvalCtx (EvalCtx, phase, scope, bind'env, value'env),
+    EvalCtx (EvalCtx, phase, scope, bindEnv, value'env),
 
     -- ** Evaluator Store
-    EvalStore (EvalStore, bind'store, prune'intros, prune'uses),
+    EvalStore (EvalStore, bindstore, prune'intros, prune'uses),
 
     -- ** Operations
     eval,
   )
 where
-
-import Control.Applicative (liftA2)
 
 import Control.Exception (Exception, displayException, toException)
 
@@ -35,10 +34,9 @@ import Control.Monad.Except (MonadError, catchError, throwError)
 import Control.Monad.Primitive (PrimMonad, PrimState, primitive)
 import Control.Monad.Reader (MonadReader, ask, asks, local)
 import Control.Monad.ST (ST, runST)
-import Control.Monad.State (MonadState, get, put, state)
+import Control.Monad.State (MonadState, get, gets, put, state)
 
 import Data.Kind (Type)
-import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Primitive.MutVar (MutVar, newMutVar, readMutVar, writeMutVar)
@@ -49,28 +47,26 @@ import GHC.Exts qualified as GHC
 --------------------------------------------------------------------------------
 
 import Opal.Common.Name (Name)
-import Opal.Common.Symbol qualified as Symbol
 
 import Opal.Core
-  ( Clause,
-    Datum (DatumCase, DatumList, DatumPrim, DatumProc, DatumStx),
+  ( CoreForm,
+    Datum (DatumCore, DatumPrim, DatumProc, DatumStx),
     Expr,
-    Prim (PrimClauseDef, PrimMakeStx, PrimSetMut, PrimStxExpr, PrimVoid),
     SExp (SExpApp, SExpVal, SExpVar),
-    primMakeStx,
-    primStxExpr,
-    toAtom,
-    toSymbol,
-    toSyntax,
   )
-import Opal.Core qualified as Core
 
+import Opal.Core.CorePrim (CorePrim (CorePrimSyntaxLocalValue))
+import Opal.Expand.Resolve (ResolveError)
+import Opal.Expand.Resolve qualified as Resolve
+import Opal.Expand.Syntax (StxIdt (StxIdt), Syntax (StxAtom, StxList))
 import Opal.Expand.Syntax.BindStore (BindStore)
 import Opal.Expand.Syntax.BindStore qualified as BindStore
+import Opal.Expand.Syntax.Binding (Binding)
+import Opal.Expand.Syntax.Binding qualified as Binding
 import Opal.Expand.Syntax.MultiScopeSet (Phase (Phase))
 import Opal.Expand.Syntax.ScopeSet (ScopeId, ScopeSet)
 import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
-import Opal.Expand.Transform (Transform)
+import Opal.Expand.Transform (Transform (TfmDtm))
 import qualified Debug.Trace as Debug
 
 -- Evaluation ------------------------------------------------------------------
@@ -210,9 +206,10 @@ instance PrimMonad (Eval s) where
 -- @since 1.0.0
 data EvalExn
   = EvalExnUnbound {-# UNPACK #-} !Name (Map Name Datum)
+  | EvalExnResolve ResolveError
   | EvalExnCallLit Expr
   | EvalExnArity {-# UNPACK #-} !Int {-# UNPACK #-} !Int Expr
-  | EvalExnCallPrim Prim [Datum]
+  | EvalExnCallPrim CoreForm [Datum]
   deriving (Eq, Ord, Show)
 
 -- @since 1.0.0
@@ -230,7 +227,7 @@ data EvalCtx s = EvalCtx
   -- ^ TODO
   , scope :: {-# UNPACK #-} !(Maybe ScopeId)
   -- ^ TODO
-  , bind'env :: Map Name Transform
+  , bindEnv :: Map Name Transform
   -- ^ TODO
   , value'env :: Map Name (MutVar s Datum)
   -- ^ TODO
@@ -285,7 +282,7 @@ extsEvalEnv (name : names) (val : vals) ctx = do
 --
 -- @since 1.0.0
 data EvalStore = EvalStore
-  { bind'store :: {-# UNPACK #-} !BindStore
+  { bindstore :: {-# UNPACK #-} !BindStore
   -- ^ TODO
   , prune'intros :: ScopeSet
   -- ^ TODO
@@ -293,6 +290,17 @@ data EvalStore = EvalStore
   -- ^ TODO
   }
   deriving (Eq, Ord, Show)
+
+-- | TODO
+--
+-- @since 1.0.0
+resolve :: StxIdt -> Eval s Binding
+resolve idt = do
+  ph <- asks phase
+  binds <- gets bindstore
+  case Resolve.runResolveId ph idt binds of
+    Left exn -> throwError (EvalExnResolve exn)
+    Right bind -> pure bind
 
 -- Eval Monad - Operations -----------------------------------------------------
 
@@ -309,26 +317,7 @@ eval (SExpApp fun args) = evalCall fun args
 --
 -- @since 1.0.0
 evalDatum :: Datum -> Eval s Datum
-evalDatum (DatumCase scrut clauses) = do
-  val <- eval scrut
-  evalCase val clauses
 evalDatum dtm = pure dtm
-
--- | TODO
---
--- @since 1.0.0
-evalCase :: Datum -> [Clause] -> Eval s Datum
-evalCase _ [] = pure (DatumPrim PrimVoid)
-evalCase val (clause : rest) = do
-  case clause.datum of
-    DatumPrim PrimClauseDef -> do
-      eval clause.body
-    DatumList pats -> do  
-      let !_ = Debug.trace (show pats) ()
-      if any (val ==) pats
-        then eval clause.body
-        else evalCase val rest
-    other -> undefined
 
 -- | TODO
 --
@@ -353,8 +342,10 @@ evalCallProc fun@(DatumProc vars body) args = do
   vals <- traverse eval args
   ctx' <- extsEvalEnv vars vals =<< ask
   local (const ctx') (eval body)
-evalCallProc (DatumPrim prim) args =
-  evalCallPrim prim args
+evalCallProc (DatumCore form) args =
+  undefined
+evalCallProc (DatumPrim prim) args = do
+  evallCallPrimProc prim args
 evalCallProc val args = do
   let expr = SExpApp (SExpVal val) args
   throwError (EvalExnCallLit expr)
@@ -363,62 +354,37 @@ evalCallProc val args = do
 -- | TODO
 --
 -- @since 1.0.0
+evallCallPrimProc :: CorePrim -> [Expr] -> Eval s Datum
+evallCallPrimProc CorePrimSyntaxLocalValue args = do
+  let !_ = Debug.trace (show args) ()
+  args' <- traverse eval args
+  case args' of
+    [DatumStx (StxList _ [_, StxAtom ctx atom])] -> do
+      store <- gets bindstore
+      let !_ = Debug.trace (show store) ()
+      binding <- resolve (StxIdt ctx atom)
+      env <- asks bindEnv
+      undefined
+      -- let name = Binding.toName binding
+      -- case Map.lookup name env of
+      --   Nothing -> error ("evaluation error: syntax-local-value missing transformer to " ++ show atom)
+      --   Just (TfmDtm val) -> pure val
+      --   Just tfm -> undefined
+    _ -> do
+      let expr = SExpApp (SExpVal $ DatumPrim $ CorePrimSyntaxLocalValue) args
+      error ("evaluation error: bad arguments to syntax-local-value " ++ show expr)
+
+-- | TODO
+--
+-- @since 1.0.0
 checkCallArity :: Int -> Datum -> [Expr] -> Eval s ()
 checkCallArity n fun args =
-  unless (n == numArgs) do
-    let expr = SExpApp (SExpVal fun) args
-    throwError (EvalExnArity n numArgs expr)
-  where
-    numArgs :: Int
-    numArgs = length args
+  let numArgs :: Int
+      numArgs = length args
+   in unless (n == numArgs) do
+        let expr = SExpApp (SExpVal fun) args
+        throwError (EvalExnArity n numArgs expr)
 {-# INLINE checkCallArity #-}
-
--- | TODO
---
--- @since 1.0.0
-evalCallPrim :: Prim -> [Expr] -> Eval s Datum
-evalCallPrim prim args = do
-  checkPrimArity prim args
-  case prim of
-    PrimMakeStx -> do
-      val1 <- eval (args List.!! 0)
-      val2 <- eval (args List.!! 1)
-      case liftA2 (,) (toAtom val1) (toSyntax val2) of
-        Nothing -> throwError (EvalExnCallPrim prim [val1, val2])
-        Just (atom, stx) -> pure (DatumStx (primMakeStx atom stx))
-    PrimStxExpr -> do
-      val <- eval (args List.!! 0)
-      case toSyntax val of
-        Nothing -> throwError (EvalExnCallPrim prim [val])
-        Just stx -> pure (primStxExpr stx)
-    PrimSetMut -> do
-      val1 <- eval (args List.!! 0)
-      val2 <- eval (args List.!! 1)
-      case toSymbol val1 of
-        Nothing -> throwError (EvalExnCallPrim prim [val1, val2])
-        Just symbol -> do
-          mut <- getMutRef (Symbol.toName symbol)
-          writeMutVar mut val1
-          pure (DatumList [])
-    _ -> do
-      let expr = SExpApp (SExpVal $ DatumPrim prim) args
-      throwError (EvalExnCallLit expr)
-{-# INLINE evalCallPrim #-}
-
--- | TODO
---
--- @since 1.0.0
-checkPrimArity :: Prim -> [Expr] -> Eval s ()
-checkPrimArity prim args =
-  checkCallArity expectNumArgs (DatumPrim prim) args
-  where
-    expectNumArgs :: Int
-    expectNumArgs = case prim of
-      PrimStxExpr -> 1
-      PrimMakeStx -> 2
-      PrimSetMut -> 2
-      _ -> undefined
-{-# INLINE checkPrimArity #-}
 
 -- | TODO
 --

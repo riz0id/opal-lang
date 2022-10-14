@@ -6,7 +6,7 @@ module Opal.Expand.Transform
         TfmQuote,
         TfmSyntax,
         TfmVar,
-        TfmDatum,
+        TfmDtm,
         TfmStop
       ),
     unstop,
@@ -32,7 +32,7 @@ data Transform
   | TfmQuote
   | TfmSyntax
   | TfmVar {-# UNPACK #-} !StxIdt
-  | TfmDatum Datum
+  | TfmDtm Datum
   | TfmStop Transform
   deriving (Data, Eq, Ord, Show)
 

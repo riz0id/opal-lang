@@ -7,6 +7,9 @@ module Opal.Expand.Syntax
 
     -- ** Construction
 
+    -- ** Prisms
+    stxatom,
+
     -- ** Scopes
     scope,
     flips,
@@ -25,8 +28,12 @@ module Opal.Expand.Syntax
   )
 where
 
+import Control.Lens (Prism', prism')
+
 import Data.Data (Data)
 import Data.SrcLoc (SrcLoc, posn, line, coln)
+
+import GHC.Records (HasField, getField)
 
 --------------------------------------------------------------------------------
 
@@ -50,7 +57,6 @@ data Syntax = Syntax
 
 -- @since 1.0.0
 instance Show Syntax where 
-  -- show (StxPrim ctx prim) = "(StxPrim " ++ shows ctx " " ++ shows prim ")"
   show (StxAtom ctx atom) = "(StxAtom " ++ shows ctx " " ++ shows atom ")"
   show (StxList ctx stxs) = "(StxList " ++ shows ctx " " ++ shows stxs ")"
   {-# INLINE show #-}
@@ -70,6 +76,22 @@ pattern StxList :: StxCtx -> [Syntax] -> Syntax
 pattern StxList ctx stxs = Syntax (Right stxs) ctx
 
 {-# COMPLETE StxAtom, StxList #-}
+
+-- Syntax - Prisms -------------------------------------------------------------
+
+-- | TODO
+--
+-- @since 1.0.0
+stxatom :: Prism' Syntax StxIdt
+stxatom = prism' from to 
+  where 
+    from :: StxIdt -> Syntax 
+    from (StxIdt ctx atom) = StxAtom ctx atom 
+
+    to :: Syntax -> Maybe StxIdt 
+    to (StxAtom ctx atom) = Just (StxIdt ctx atom) 
+    to _ = Nothing
+{-# INLINE stxatom #-}
 
 -- Syntax - Scopes -------------------------------------------------------------
 
@@ -129,6 +151,11 @@ data StxIdt = StxIdt
   , symbol :: {-# UNPACK #-} !Symbol
   }
   deriving (Data, Eq, Ord, Show)
+
+-- | @since 1.0.0
+instance HasField "syntax" StxIdt Syntax where 
+  getField (StxIdt ctx atom) = StxAtom ctx atom
+  {-# INLINE CONLIKE getField #-}
 
 -- | TODO
 --

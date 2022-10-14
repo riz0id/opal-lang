@@ -87,6 +87,7 @@ library
     , containers
     , emit
     , ghc-prim
+    , lens
     , parsel
     , primitive
     , prim-bool 
@@ -103,7 +104,8 @@ library
     Opal.Core
     Opal.Core.Atom
     Opal.Core.Datum
-    Opal.Core.Prim
+    Opal.Core.CoreForm
+    Opal.Core.CorePrim
     Opal.Core.SExp
     Opal.Evaluate
     Opal.Expand

@@ -1,15 +1,6 @@
-
 (let-syntax 
-  [(stx-const-true (lambda (stx) #'#t))]
-  (stx-const-true #f))
+  ([true (syntax #t)]
+   [test (syntax-local-value #'true)])
+  test)
 
-((lambda (x y) x) (syntax #t) #f)
-
-(lambda (x) 
-  (case x [(#t) #f] 
-          [(#f) #t]))
-
-(lambda (n) 
-  (if (<= 0 n) 
-    (+ (fib (- n 1)) (fib (- n 2)))
-    1))
+   [test (lambda (_) (syntax-local-value #'true))])
