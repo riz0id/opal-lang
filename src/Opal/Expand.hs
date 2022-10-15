@@ -9,7 +9,7 @@ module Opal.Expand
     Expand (Expand, unExpand),
 
     -- ** Expander Errors
-    ExpandError (ExnResolveError),
+    ExpandError (ExnResolveError, ExnApplicationToValue),
 
     -- ** Expander Context
     ExpandCtx (ExpandCtx, phase, environment),
@@ -179,6 +179,7 @@ data ExpandError
   | ExnEvalError EvalExn
   | ExnRecievedNotSyntax Datum
   | ExnUnboundTransformer Name (Map Name Transform)
+  | ExnApplicationToValue Datum [Syntax]
   deriving (Eq, Ord, Show)
 
 -- Expand Monad -Expander Contexts ---------------------------------------------
@@ -458,8 +459,8 @@ idtApplicationExpand ctx idt stxs = do
     TfmDtm (DatumProc args body) -> do
       let macro = StxList ctx (idt.syntax : stxs)
       applyTransformer (SExpVal (DatumProc args body)) [macro]
-    TfmDtm dtm -> do
-      error ("name application expand: " ++ show dtm)
+    TfmDtm datum -> do
+      throwError (ExnApplicationToValue datum stxs)
     TfmVar func -> do
       applicationExpand ctx func stxs
 

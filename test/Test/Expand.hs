@@ -13,5 +13,3 @@ testTree =
     "Test"
     [ 
     ]
-
-prop

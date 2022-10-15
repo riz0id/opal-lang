@@ -330,7 +330,7 @@ evalDatum dtm = pure dtm
 evalCall :: Expr -> [Expr] -> Eval s Datum
 evalCall (SExpVar var) args
   | var == "syntax-local-value" = do
-      evallCallPrimProc CorePrimSyntaxLocalValue args
+      evalCallPrimProc CorePrimSyntaxLocalValue args
   | otherwise = do
       val <- getVariable var
       evalCallProc val args
@@ -353,7 +353,7 @@ evalCallProc fun@(DatumProc vars body) args = do
 evalCallProc (DatumCore form) args =
   undefined
 evalCallProc (DatumPrim prim) args = do
-  evallCallPrimProc prim args
+  evalCallPrimProc prim args
 evalCallProc val args = do
   let expr = SExpApp (SExpVal val) args
   throwError (EvalExnCallLit expr)
@@ -362,8 +362,8 @@ evalCallProc val args = do
 -- | TODO
 --
 -- @since 1.0.0
-evallCallPrimProc :: CorePrim -> [Expr] -> Eval s Datum
-evallCallPrimProc CorePrimSyntaxLocalValue args = do
+evalCallPrimProc :: CorePrim -> [Expr] -> Eval s Datum
+evalCallPrimProc CorePrimSyntaxLocalValue args = do
   case args of
     [arg] -> do
       arg' <- eval arg
@@ -379,7 +379,7 @@ evallCallPrimProc CorePrimSyntaxLocalValue args = do
         other -> error ("evaluation error: syntax-local-value recieved value that was not an identifier: " ++ show other)
     _ -> do
       let expr = SExpApp (SExpVal $ DatumPrim $ CorePrimSyntaxLocalValue) args
-      error ("evaluation error: bad arguments to syntax-local-value " ++ show expr)
+      error ("evaluation error: bad arguments to syntax-local-value: " ++ show expr)
 
 -- | TODO
 --
