@@ -1,7 +1,12 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 
 module Opal.Expand.Resolve
-  ( -- * Monad
+  ( -- * Class 
+    MonadResolve,
+    resolveName,
+    resolveBind,
+  
+    -- * Monad
     Resolve (Resolve, unResolve),
 
     -- * Resolver Context
@@ -33,6 +38,7 @@ import Opal.Common.Name (Name)
 import Opal.Common.Symbol (Symbol)
 import Opal.Common.Symbol qualified as Symbol
 
+import Opal.Expand.Resolve.Class (MonadResolve, resolveName, resolveBind)
 import Opal.Expand.Syntax (StxIdt)
 import Opal.Expand.Syntax qualified as Syntax
 import Opal.Expand.Syntax.BindStore (BindStore)

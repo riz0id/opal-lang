@@ -88,3 +88,4 @@
 - ignore: {name: Avoid lambda}
 - ignore: {name: Use const}
 - ignore: {name: Use tuple-section}
+- ignore: {name: Replace case with fromMaybe}

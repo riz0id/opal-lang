@@ -1,52 +1,22 @@
 {-# LANGUAGE StandaloneKindSignatures #-}
 
-module Opal.Core
-  ( -- * Expressions
-    Expr,
+module Opal.Core (
+  -- * Declarations
+  Decl(DeclDefn, DeclDefnStx, DeclSExp),
 
-    -- * S-Expressions
-    SExp (SExpVar, SExpVal, SExpApp),
+  -- * Expressions
+  Expr,
 
-    -- ** Deconstruction
-    toVarRef,
+  -- * S-Expressions
+  SExp (..),
 
-    -- * Datums
-    Datum
-      ( DatumAtom,
-        DatumCase,
-        DatumCore,
-        DatumPrim,
-        DatumList,
-        DatumProc,
-        DatumStx
-      ),
+  -- ** Deconstruction
+  toVarRef,
 
-    -- ** Construction
-    atomToDatum,
-    syntaxToDatum,
-
-    -- ** Deconstruction
-    toSyntax,
-    toAtom,
-    toSymbol,
-
-    -- * Procedures
-    Procedure (Procedure, formals, body),
-
-    -- * Procedures
-    Clause (Clause, datum, body),
-
-    -- * Atoms
-    Atom (Atom, Core),
-
-    -- * Primitives
-    CoreForm (CoreFormLambda, CoreFormLetSyntax, CoreFormQuote, CoreFormSyntax),
-
-    -- ** Primitive Operations
-    primStxExpr,
-    primMakeStx,
-  )
-where
+  -- * Primitives
+  CoreForm (..),
+  CorePrim (..),
+) where
 
 import Data.Kind (Type)
 
@@ -54,32 +24,22 @@ import Data.Kind (Type)
 
 import Opal.Common.Name (Name)
 
-import Opal.Core.Atom (Atom (Atom, Core))
-import Opal.Core.CoreForm
-  ( CoreForm (CoreFormLambda, CoreFormLetSyntax, CoreFormQuote, CoreFormSyntax),
-  )
-import Opal.Core.CoreForm qualified as CoreForm
-import Opal.Core.Datum
-  ( Clause (Clause, body, datum),
-    Datum
-      ( DatumAtom,
-        DatumCase,
-        DatumCore,
-        DatumList,
-        DatumPrim,
-        DatumProc,
-        DatumStx
-      ),
-    Procedure (Procedure, body, formals),
-    atomToDatum,
-    syntaxToDatum,
-    toAtom,
-    toSymbol,
-    toSyntax,
-  )
-import Opal.Core.SExp (SExp (SExpApp, SExpVal, SExpVar))
+import Opal.Core.Form (CoreForm (..))
+import Opal.Core.Prim (CorePrim (..))
+import Opal.Core.SExp (SExp (..))
 
-import Opal.Expand.Syntax (Syntax (StxAtom, StxList, context))
+import Opal.Expand.Syntax (StxIdt)
+import Opal.Core.Datum (Datum)
+
+-- Declarations ----------------------------------------------------------------
+
+-- | TODO
+--
+-- @since 1.0.0
+data Decl 
+  = DeclDefn StxIdt Expr
+  | DeclDefnStx StxIdt Expr
+  | DeclSExp Expr
 
 -- Expressions -----------------------------------------------------------------
 
@@ -98,21 +58,3 @@ toVarRef :: SExp a -> Maybe Name
 toVarRef (SExpVar name) = Just name
 toVarRef _ = Nothing
 {-# INLINE toVarRef #-}
-
--- Primitives - Primitive Operations  ------------------------------------------
-
--- | TODO
---
--- @since 1.0.0
-primStxExpr :: Syntax -> Datum
-primStxExpr (StxAtom _ name) = DatumAtom name
-primStxExpr (StxList _ stxs) = DatumList (map DatumStx stxs)
-{-# INLINE primStxExpr #-}
-
--- | TODO
---
--- @since 1.0.0
-primMakeStx :: Atom -> Syntax -> Syntax
-primMakeStx (Atom name) stx = StxAtom stx.context name
-primMakeStx (Core form) stx = StxAtom stx.context (CoreForm.toSymbol form)
-{-# INLINE primMakeStx #-}

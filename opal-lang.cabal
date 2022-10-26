@@ -61,7 +61,7 @@ library
   hs-source-dirs: src
 
   default-extensions:
-    DataKinds DeriveDataTypeable GeneralizedNewtypeDeriving 
+    DataKinds DeriveDataTypeable DeriveLift GeneralizedNewtypeDeriving 
     PatternSynonyms ViewPatterns
 
   ghc-options:
@@ -102,16 +102,19 @@ library
     Opal.Common.Name
     Opal.Common.Symbol
     Opal.Core
-    Opal.Core.Atom
     Opal.Core.Datum
-    Opal.Core.CoreForm
-    Opal.Core.CorePrim
+    Opal.Core.Form
+    Opal.Core.Prim
     Opal.Core.SExp
-    Opal.Evaluate
     Opal.Expand
-    Opal.Expand.Common.Intern
-    Opal.Expand.Common.Intern.Monad
+    Opal.Expand.Core
+    Opal.Expand.Evaluate
+    Opal.Expand.Monad
+    Opal.Expand.Monad.ExpandContext
+    Opal.Expand.Monad.ExpandStore
+    Opal.Expand.Namespace
     Opal.Expand.Resolve
+    Opal.Expand.Resolve.Class
     Opal.Expand.Syntax
     Opal.Expand.Syntax.Binding
     Opal.Expand.Syntax.BindStore
@@ -119,8 +122,12 @@ library
     Opal.Expand.Syntax.ScopeSet
     Opal.Expand.Transform
     Opal.Parse
+    Opal.Parse.TH
     Opal.Print
     Opal.Read
+
+  other-modules:
+    Opal.Expand.Syntax.StxCtx
 
 executable opal
   import:         common
@@ -157,4 +164,4 @@ test-suite test
     Test.Compat
     Test.Core
     Test.Expand
-    Test.Expand.Syntax
+    Test.Expand.Evaluate

@@ -1,4 +1,4 @@
-{ ghc ? "ghc922" }:
+{ ghc ? "ghc924" }:
 
 let
   pkgs = import nix/pkgs.nix { 
@@ -6,14 +6,10 @@ let
   };
 in {
   inherit (pkgs.haskell.packages."${ghc}") 
-    fourmolu
-    haskell-language-server
-    hlint
     opal-lang
     opal-repl;
     
   inherit (pkgs) 
-    cabal-install 
     clang 
     llvm;
 

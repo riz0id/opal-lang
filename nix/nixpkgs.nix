@@ -1,8 +1,6 @@
-{ fetchTarball ? builtins.fetchTarball }:
-
-# nixpkgs release 22.05 pinned on August 16th, 2022.
-# url: <https://github.com/NixOS/nixpkgs/releases/tag/22.05>
-fetchTarball {
-  url = "https://github.com/NixOS/nixpkgs/archive/refs/tags/22.05.tar.gz";
-  sha256 = "0d643wp3l77hv2pmg2fi7vyxn4rwy0iyr8djcw1h5x72315ck9ik";
+# nixpkgs-unstable pinned on October 18th, 2022.
+# url: <https://nixos.org/channels/nixpkgs-unstable>
+builtins.fetchTarball {
+  url = "https://nixos.org/channels/nixpkgs-unstable/nixexprs.tar.xz";
+  sha256 = "0f6siw2xiv7i5jcg7lkng1bdv9x8b3swin3qvr61ngv74ylsv530";
 }

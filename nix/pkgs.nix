@@ -1,8 +1,6 @@
 { ghc }:
 
-let
-  nixpkgs = import ./nixpkgs.nix { };
-in import nixpkgs {
+import (import ./nixpkgs.nix) {
   config.packageOverrides = pkgs: 
     pkgs.lib.composeManyExtensions [  
       (import extensions/emit.nix {
@@ -33,6 +31,9 @@ in import nixpkgs {
         inherit ghc;
       })
       (import extensions/source-locations.nix {
+        inherit ghc;
+      })
+      (import extensions/text.nix {
         inherit ghc;
       })
     ] pkgs pkgs;

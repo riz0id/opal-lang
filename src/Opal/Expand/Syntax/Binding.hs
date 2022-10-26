@@ -5,7 +5,7 @@ module Opal.Expand.Syntax.Binding
     Binding (Binding, binder, scopes),
 
     -- * Construction
-    makeCoreFormBinding,
+    makeCoreBinding,
 
     -- * Scope Set Operations
     scope,
@@ -34,9 +34,6 @@ import Prelude hiding (maximum)
 
 import Opal.Common.Name (Name)
 
-import Opal.Core.CoreForm (CoreForm)
-import Opal.Core.CoreForm qualified as CoreForm
-
 import Opal.Expand.Syntax.ScopeSet (ScopeId, ScopeSet)
 import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
 
@@ -47,7 +44,7 @@ import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
 -- @since 1.0.0
 data Binding = Binding
   { scopes :: ScopeSet
-  , binder :: Name
+  , binder :: {-# UNPACK #-} !Name
   }
   deriving (Data, Eq, Ord, Show)
 
@@ -56,8 +53,8 @@ data Binding = Binding
 -- | TODO
 --
 -- @since 1.0.0
-makeCoreFormBinding :: CoreForm -> Binding
-makeCoreFormBinding form = Binding (ScopeSet.singleton 0) (CoreForm.toName form)
+makeCoreBinding :: Name -> Binding
+makeCoreBinding = Binding (ScopeSet.singleton 0) 
 
 -- Scope Set Operations --------------------------------------------------------
 

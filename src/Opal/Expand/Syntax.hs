@@ -1,48 +1,41 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Opal.Expand.Syntax
-  ( -- * Syntax
-    Syntax (StxAtom, StxList, content, context),
+module Opal.Expand.Syntax (
+  -- * Syntax
+  Syntax (StxBool, StxAtom, StxList, content, context),
 
-    -- ** Construction
+  -- ** Construction
+  makeSyntax,
 
-    -- ** Prisms
-    stxatom,
+  -- ** Scopes
+  scope,
+  flips,
+  prune,
+  index,
 
-    -- ** Scopes
-    scope,
-    flips,
-    prune,
-    index,
+  -- * StxIdt
+  StxIdt (..),
+  scopeIdt,
 
-    -- * StxIdt
-    StxIdt (StxIdt, context, symbol),
-    scopeIdt,
-    
-    -- * StxCtx
-    StxCtx (StxCtx, location, length, multiscope),
-
-    -- ** Construction 
-    makeStxCtx,
-  )
-where
-
-import Control.Lens (Prism', prism')
+  -- * StxCtx
+  module Opal.Expand.Syntax.StxCtx,
+) where
 
 import Data.Data (Data)
-import Data.SrcLoc (SrcLoc, posn, line, coln)
 
 import GHC.Records (HasField, getField)
 
 --------------------------------------------------------------------------------
 
 import Opal.Common.Symbol (Symbol)
+import Opal.Common.Symbol qualified as Symbol
 
-import Opal.Expand.Syntax.MultiScopeSet (MultiScopeSet, Phase)
+import Opal.Expand.Syntax.MultiScopeSet (Phase)
 import Opal.Expand.Syntax.MultiScopeSet qualified as MultiScopeSet
 import Opal.Expand.Syntax.ScopeSet (ScopeId, ScopeSet)
 import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
+import Opal.Expand.Syntax.StxCtx 
 
 -- Syntax ----------------------------------------------------------------------
 
@@ -50,13 +43,14 @@ import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
 --
 -- @since 1.0.0
 data Syntax = Syntax
-  { content :: Either Symbol [Syntax]
+  { content :: StxData
   , context :: {-# UNPACK #-} !StxCtx
   }
   deriving (Data, Eq, Ord)
 
 -- @since 1.0.0
-instance Show Syntax where 
+instance Show Syntax where
+  show (StxBool ctx bool) = "(StxBool " ++ shows ctx " " ++ shows bool ")"
   show (StxAtom ctx atom) = "(StxAtom " ++ shows ctx " " ++ shows atom ")"
   show (StxList ctx stxs) = "(StxList " ++ shows ctx " " ++ shows stxs ")"
   {-# INLINE show #-}
@@ -66,136 +60,117 @@ instance Show Syntax where
 -- | TODO
 --
 -- @since 1.0.0
+pattern StxBool :: StxCtx -> Bool -> Syntax
+pattern StxBool ctx atom = Syntax (Bool atom) ctx
+
+-- | TODO
+--
+-- @since 1.0.0
 pattern StxAtom :: StxCtx -> Symbol -> Syntax
-pattern StxAtom ctx atom = Syntax (Left atom) ctx
+pattern StxAtom ctx atom = Syntax (Atom atom) ctx
 
 -- | TODO
 --
 -- @since 1.0.0
 pattern StxList :: StxCtx -> [Syntax] -> Syntax
-pattern StxList ctx stxs = Syntax (Right stxs) ctx
+pattern StxList ctx stxs = Syntax (List stxs) ctx
 
-{-# COMPLETE StxAtom, StxList #-}
-
--- Syntax - Prisms -------------------------------------------------------------
+{-# COMPLETE StxBool, StxAtom, StxList #-}
 
 -- | TODO
 --
 -- @since 1.0.0
-stxatom :: Prism' Syntax StxIdt
-stxatom = prism' from to 
-  where 
-    from :: StxIdt -> Syntax 
-    from (StxIdt ctx atom) = StxAtom ctx atom 
-
-    to :: Syntax -> Maybe StxIdt 
-    to (StxAtom ctx atom) = Just (StxIdt ctx atom) 
-    to _ = Nothing
-{-# INLINE stxatom #-}
+makeSyntax :: Syntax -> Symbol -> Syntax
+makeSyntax stx sym = StxAtom stx.context {length = Symbol.length sym} sym
 
 -- Syntax - Scopes -------------------------------------------------------------
 
--- | TODO 
+-- | TODO
 --
 -- @since 1.0.0
 scope :: Phase -> ScopeId -> Syntax -> Syntax
-scope ph sc (StxAtom ctx atom) = 
-  let ctx' :: StxCtx 
-      ctx' = adjust ph (ScopeSet.insert sc) ctx 
+scope ph sc (StxBool ctx bool) =
+  let ctx' :: StxCtx
+      ctx' = adjust ph (ScopeSet.insert sc) ctx
+   in StxBool ctx' bool
+scope ph sc (StxAtom ctx atom) =
+  let ctx' :: StxCtx
+      ctx' = adjust ph (ScopeSet.insert sc) ctx
    in StxAtom ctx' atom
-scope ph sc (StxList ctx stxs) = 
-  let ctx' :: StxCtx 
-      ctx' = adjust ph (ScopeSet.insert sc) ctx 
+scope ph sc (StxList ctx stxs) =
+  let ctx' :: StxCtx
+      ctx' = adjust ph (ScopeSet.insert sc) ctx
    in StxList ctx' (map (scope ph sc) stxs)
 
--- | TODO 
+-- | TODO
 --
 -- @since 1.0.0
 flips :: Phase -> ScopeId -> Syntax -> Syntax
-flips ph sc (StxAtom ctx atom) = 
-  let ctx' :: StxCtx 
-      ctx' = adjust ph (ScopeSet.flips sc) ctx 
-   in StxAtom ctx' atom 
-flips ph sc (StxList ctx stxs) = 
-  let ctx' :: StxCtx 
-      ctx' = adjust ph (ScopeSet.flips sc) ctx 
+flips ph sc (StxBool ctx bool) =
+  let ctx' :: StxCtx
+      ctx' = adjust ph (ScopeSet.flips sc) ctx
+   in StxBool ctx' bool
+flips ph sc (StxAtom ctx atom) =
+  let ctx' :: StxCtx
+      ctx' = adjust ph (ScopeSet.flips sc) ctx
+   in StxAtom ctx' atom
+flips ph sc (StxList ctx stxs) =
+  let ctx' :: StxCtx
+      ctx' = adjust ph (ScopeSet.flips sc) ctx
    in StxList ctx' (map (flips ph sc) stxs)
 
 -- | TODO
 --
 -- @since 1.0.0
 prune :: Phase -> ScopeSet -> Syntax -> Syntax
-prune ph sc (StxAtom ctx atom) = 
-  let ctx' :: StxCtx 
+prune ph sc (StxBool ctx bool) =
+  let ctx' :: StxCtx
       ctx' = adjust ph (`ScopeSet.difference` sc) ctx
-   in StxAtom ctx' atom 
-prune ph sc (StxList ctx stxs) = 
-  let ctx' :: StxCtx 
-      ctx' = adjust ph (`ScopeSet.difference` sc) ctx 
+   in StxBool ctx' bool
+prune ph sc (StxAtom ctx atom) =
+  let ctx' :: StxCtx
+      ctx' = adjust ph (`ScopeSet.difference` sc) ctx
+   in StxAtom ctx' atom
+prune ph sc (StxList ctx stxs) =
+  let ctx' :: StxCtx
+      ctx' = adjust ph (`ScopeSet.difference` sc) ctx
    in StxList ctx' (map (prune ph sc) stxs)
 
 -- | TODO
 --
 -- @since 1.0.0
 index :: Phase -> Syntax -> ScopeSet
-index ph (StxAtom ctx _) = MultiScopeSet.index ph (multiscope ctx)
-index ph (StxList ctx _) = MultiScopeSet.index ph (multiscope ctx)
+index ph stx = MultiScopeSet.index ph stx.context.multiscope
 
--- StxCtx ----------------------------------------------------------------------
+-- StxIdt ----------------------------------------------------------------------
 
 -- | TODO
 --
 -- @since 1.0.0
-data StxIdt = StxIdt 
+data StxIdt = StxIdt
   { context :: {-# UNPACK #-} !StxCtx
   , symbol :: {-# UNPACK #-} !Symbol
   }
   deriving (Data, Eq, Ord, Show)
 
 -- | @since 1.0.0
-instance HasField "syntax" StxIdt Syntax where 
+instance HasField "syntax" StxIdt Syntax where
   getField (StxIdt ctx atom) = StxAtom ctx atom
   {-# INLINE CONLIKE getField #-}
 
 -- | TODO
 --
 -- @since 1.0.0
-scopeIdt :: Phase -> ScopeId -> StxIdt -> StxIdt 
+scopeIdt :: Phase -> ScopeId -> StxIdt -> StxIdt
 scopeIdt ph sc (StxIdt ctx sym) = StxIdt (adjust ph (ScopeSet.insert sc) ctx) sym
 
--- StxCtx ----------------------------------------------------------------------
+-- StxData ---------------------------------------------------------------------
 
--- | TODO
+-- | TODO 
 --
 -- @since 1.0.0
-data StxCtx = StxCtx
-  { location :: {-# UNPACK #-} !SrcLoc
-  , length :: {-# UNPACK #-} !Int
-  , multiscope :: MultiScopeSet
-  }
+data StxData 
+  = Bool Bool
+  | Atom Symbol
+  | List [Syntax]
   deriving (Data, Eq, Ord)
-
--- | @since 1.0.0
-instance Show StxCtx where 
-  show (StxCtx loc len sc) = 
-    "(StxCtx:" 
-      ++ shows loc.posn ":"
-      ++ shows loc.line ":"
-      ++ shows loc.coln " "
-      ++ shows len " "
-      ++ shows sc ")"
-  {-# INLINE show #-}
-
--- StxCtx - Construction -------------------------------------------------------
-
--- | TODO
---
--- @since 1.0.0
-makeStxCtx :: Phase -> ScopeSet -> StxCtx -> StxCtx 
-makeStxCtx ph scopes ctx = ctx{multiscope = MultiScopeSet.singleton ph scopes} 
-
--- | TODO
---
--- @since 1.0.0
-adjust :: Phase -> (ScopeSet -> ScopeSet) -> StxCtx -> StxCtx
-adjust ph f ctx = ctx {multiscope = MultiScopeSet.adjust ph f ctx.multiscope}

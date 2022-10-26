@@ -37,10 +37,12 @@ where
 
 import Data.Bifunctor (Bifunctor (first))
 import Data.Data (Data)
-import Data.IntMap.Strict (IntMap)
+import Data.IntMap.Internal (IntMap (..))
 import Data.IntMap.Strict qualified as IntMap
 import Data.Kind (Type)
 import Data.Maybe (fromMaybe)
+
+import Language.Haskell.TH.Syntax (Lift)
 
 import Prelude hiding (lookup, null)
 
@@ -49,6 +51,7 @@ import Prelude hiding (lookup, null)
 import Data.Coerce (coerce)
 import Opal.Expand.Syntax.ScopeSet (ScopeId, ScopeSet)
 import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
+import qualified Data.List as List
 
 -- MultiScopeSet ---------------------------------------------------------------
 
@@ -57,7 +60,12 @@ import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
 -- @since 1.0.0
 newtype Phase :: Type where
   Phase :: {getPhase :: Int} -> Phase
-  deriving (Data, Enum, Eq, Ord, Show)
+  deriving (Data, Enum, Eq, Ord, Lift)
+
+-- | @since 1.0.0
+instance Show Phase where 
+  show (Phase n) = "#phase:" ++ show n
+  {-# INLINE show #-}
 
 -- MultiScopeSet ---------------------------------------------------------------
 
@@ -66,7 +74,16 @@ newtype Phase :: Type where
 -- @since 1.0.0
 newtype MultiScopeSet :: Type where
   MultiScopeSet :: IntMap ScopeSet -> MultiScopeSet
-  deriving (Data, Eq, Ord, Show)
+  deriving (Data, Eq, Ord)
+
+-- | @since 1.0.0
+instance Show MultiScopeSet where 
+  show (MultiScopeSet kxs) =  
+    "#multiscope{" ++ List.intercalate ", " (IntMap.foldrWithKey' cons [] kxs) ++ "}" 
+    where 
+      cons :: Int -> ScopeSet -> [String] -> [String]
+      cons ph scopes rest = (shows (Phase ph) " -> " ++ show scopes) : rest
+  {-# INLINE show #-}
 
 -- | TODO
 --

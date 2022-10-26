@@ -12,29 +12,31 @@
 -- TODO
 --
 -- @since 1.0.0
-module Opal.Common.Symbol
-  ( Symbol (Symbol),
+module Opal.Common.Symbol (
+  -- * Symbol
+  Symbol (Symbol),
 
-    -- * Conversion
-    pack,
-    unpack,
-    fromName,
-    toName,
+  -- * Conversion
+  pack,
+  unpack,
+  fromName,
+  toName,
 
-    -- * Query
-    size,
-    ptr,
+  -- * Query
+  length,
+  ptr,
 
-    -- * Comparison
-    equiv,
-  )
-where
+  -- * Comparison
+  equiv,
+) where
 
 import Data.Coerce (coerce)
 import Data.Data (Data, dataTypeOf, gunfold, mkNoRepType, toConstr)
 import Data.Primitive.Ptr (Ptr)
 import Data.String (IsString)
 import Data.Text qualified as Text
+
+import Prelude hiding (length)
 
 import Text.Emit (Emit, emit)
 import Text.Emit qualified as Emit
@@ -92,7 +94,7 @@ unpack = coerce Name.unpack
 -- | \(\mathcal{O}(1)\). Unpacks the contents of a 'Name' into a 'Symbol'.
 --
 -- @since 1.0.0
-fromName :: Name -> Symbol 
+fromName :: Name -> Symbol
 fromName = coerce
 {-# INLINE fromName #-}
 
@@ -108,9 +110,9 @@ toName = coerce
 -- | \(\mathcal{O}(1)\). Obtains a character pointer addressing a 'Symbol'.
 --
 -- @since 1.0.0
-size :: Symbol -> Int
-size = coerce Name.size
-{-# INLINE size #-}
+length :: Symbol -> Int
+length = coerce Name.size
+{-# INLINE length #-}
 
 -- | Obtains a character pointer addressing a 'Symbol'.
 --

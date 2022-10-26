@@ -1,27 +1,29 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Opal.Print
-  ( -- * TODO
-    pprDatum,
-    pprSExp,
-    pprSyntax,
+module Opal.Print (
+  -- * TODO
+  pprDecl,
+  pprDatum,
+  pprExpr,
+  pprSyntax,
 
-    -- * TODO
-    docSExp,
-    docSExpVar,
-    docSExpApp,
+  -- * TODO
+  docDecl,
 
-    -- * TODO
-    docDatum,
-    docClause,
+  -- * TODO
+  docExpr,
+  docSExpVar,
+  docSExpApp,
 
-    -- * TODO
-    docSyntax,
-    docStxCtx,
-    docStxAtom,
-    docStxList,
-  )
-where
+  -- * TODO
+  docDatum,
+
+  -- * TODO
+  docSyntax,
+  docStxCtx,
+  docStxAtom,
+  docStxList,
+) where
 
 import Data.SrcLoc (SrcLoc (coln, line))
 import Data.Text (Text)
@@ -36,19 +38,22 @@ import Opal.Common.Name (Name)
 import Opal.Common.Name qualified as Name
 import Opal.Common.Symbol (Symbol)
 
-import Opal.Core
-  ( CoreForm,
-    Datum (DatumAtom, DatumCore, DatumList, DatumProc, DatumStx),
-    Expr,
-    SExp (SExpApp, SExpVal, SExpVar),
-  )
-import Opal.Core.CoreForm qualified as CoreForm
-import Opal.Core.Datum (Clause (Clause), Datum (DatumBool, DatumCase))
+import Opal.Core (Decl (..), Expr,SExp (..))
+import Opal.Core.Datum (Datum)
+import Opal.Core.Datum qualified as Datum
 
-import Opal.Expand.Syntax (StxCtx, Syntax (StxAtom, StxList))
+import Opal.Core.Prim qualified as Core.Prim
+import Opal.Expand.Syntax (StxCtx, Syntax (StxAtom, StxList, StxBool))
 import Opal.Expand.Syntax qualified as Syntax
+import qualified Data.Map.Strict as Map
 
 -- TODO ------------------------------------------------------------------------
+
+-- | TODO
+--
+-- @since 1.0.0
+pprDecl :: Decl -> Text
+pprDecl decl = Emit.layout (docDecl decl)
 
 -- | TODO
 --
@@ -59,8 +64,8 @@ pprDatum dtm = Emit.layout (docDatum dtm)
 -- | TODO
 --
 -- @since 1.0.0
-pprSExp :: Expr -> Text
-pprSExp sexp = Emit.layout (docSExp sexp)
+pprExpr :: Expr -> Text
+pprExpr sexp = Emit.layout (docExpr sexp)
 
 -- | TODO
 --
@@ -73,10 +78,18 @@ pprSyntax stx = Emit.layout (docSyntax stx)
 -- | TODO
 --
 -- @since 1.0.0
-docSExp :: Expr -> Doc a
-docSExp (SExpVal val) = docDatum val
-docSExp (SExpVar var) = docSExpVar var
-docSExp (SExpApp fun args) = docSExpApp fun args
+docExpr :: Expr -> Doc a
+docExpr (SExpVal val) = docDatum val
+docExpr (SExpVar var) = docSExpVar var
+docExpr (SExpApp fun args) = docSExpApp fun args
+docExpr (SExpLet vars body) = 
+  (Emit.parens . Emit.hsep)
+    ["let"
+    , (Emit.nest 2 . Emit.vsep)
+        [ Emit.parens (Emit.vsep (Map.foldMapWithKey (\var val -> [Emit.bracks (emit var <+> docExpr val)]) vars))
+        , docExpr body
+        ]
+    ]
 
 -- | TODO
 --
@@ -88,7 +101,25 @@ docSExpVar var = Emit.text (Text.pack (Name.unpack var))
 --
 -- @since 1.0.0
 docSExpApp :: Expr -> [Expr] -> Doc a
-docSExpApp fun args = Emit.parens (Emit.hsep (map docSExp (fun : args)))
+docSExpApp fun args = Emit.parens (Emit.hsep (map docExpr (fun : args)))
+
+-- TODO ------------------------------------------------------------------------
+
+-- | TODO
+--
+-- @since 1.0.0
+docDecl :: Decl -> Doc a
+docDecl (DeclDefn defn sexp) =
+  "(define-value"
+    <+> emit defn.symbol
+      <> Emit.nest 2 (docExpr sexp)
+      <> ")"
+docDecl (DeclDefnStx defn sexp) =
+  "(define-syntax-value"
+    <+> emit defn.symbol
+      <> Emit.nest 2 (docExpr sexp)
+      <> ")"
+docDecl (DeclSExp sexp) = docExpr sexp
 
 -- TODO ------------------------------------------------------------------------
 
@@ -96,38 +127,18 @@ docSExpApp fun args = Emit.parens (Emit.hsep (map docSExp (fun : args)))
 --
 -- @since 1.0.0
 docDatum :: Datum -> Doc a
-docDatum (DatumStx stx) = docSyntax stx
-docDatum (DatumAtom atom) = emit atom
-docDatum (DatumBool bool) = if bool then "#t" else "#f"
-docDatum (DatumCore form) = docCoreForm form
-docDatum (DatumProc vars body) =
-  "'(λ ("
-    <> Emit.hsep (map emit vars)
-    <> Emit.text ") ->"
-    <> Emit.nest 2 (docSExp body)
-    <> ")"
-docDatum (DatumCase scrut cases) =
-  "'(case"
-    <+> Emit.parens (docSExp scrut)
-    <+> "->"
-    <> Emit.nest 2 (Emit.vsep (map docClause cases))
-    <> ")"
-docDatum (DatumList vals) =
+docDatum (Datum.Stx stx) = docSyntax stx
+docDatum (Datum.Atom atom) = emit atom
+docDatum (Datum.Bool bool) = if bool then "#t" else "#f"
+docDatum (Datum.Prim prim) = emit (Core.Prim.toName prim)
+docDatum (Datum.Proc vars body) =
+  (Emit.parens . Emit.hsep)
+    [ "λ"
+    , Emit.parens (Emit.hsep (map emit vars))
+    , Emit.nest 2 (Emit.vsep (foldr ((:) . docExpr) [] body))
+    ]
+docDatum (Datum.List vals) =
   "'" <> Emit.parens (Emit.hsep (map docDatum vals))
-
--- | TODO
---
--- @since 1.0.0
-docClause :: Clause -> Doc a
-docClause (Clause pat body) = "'" <> Emit.bracks (docDatum pat <+> docSExp body)
-
--- TODO ------------------------------------------------------------------------
-
--- | TODO
---
--- @since 1.0.0
-docCoreForm :: CoreForm -> Doc a
-docCoreForm prim = emit (CoreForm.toSymbol prim)
 
 -- TODO ------------------------------------------------------------------------
 
@@ -135,6 +146,7 @@ docCoreForm prim = emit (CoreForm.toSymbol prim)
 --
 -- @since 1.0.0
 docSyntax :: Syntax -> Doc a
+docSyntax (StxBool ctx atom) = docStxBool ctx atom
 docSyntax (StxAtom ctx atom) = docStxAtom ctx atom
 docSyntax (StxList ctx stxs) = docStxList ctx stxs
 
@@ -143,6 +155,14 @@ docSyntax (StxList ctx stxs) = docStxList ctx stxs
 -- @since 1.0.0
 docStxCtx :: StxCtx -> Doc a
 docStxCtx ctx = emit ctx.location.line <> ":" <> emit ctx.location.coln
+
+-- | TODO
+--
+-- @since 1.0.0
+docStxBool :: StxCtx -> Bool -> Doc a
+docStxBool ctx bool 
+  | bool = "#<syntax:" <> docStxCtx ctx <> ": #t>"
+  | otherwise = "#<syntax:" <> docStxCtx ctx <> ": #f>"
 
 -- | TODO
 --
@@ -158,8 +178,9 @@ docStxList ctx stxs =
   "#<syntax:"
     <> docStxCtx ctx
     <+> Emit.parens (Emit.hsep (map docStxElem stxs))
-    <> ">"
+      <> ">"
   where
     docStxElem :: Syntax -> Doc a
+    docStxElem (StxBool _ bool) = if bool then "#t" else "#f"
     docStxElem (StxAtom _ atom) = emit atom
     docStxElem (StxList _ stxs') = Emit.parens (Emit.hsep (map docStxElem stxs'))

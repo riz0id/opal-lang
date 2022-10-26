@@ -4,8 +4,11 @@ import Control.Exception (ErrorCall (ErrorCall), throwIO)
 
 import Data.Foldable (for_)
 import Data.List.NonEmpty qualified as NonEmpty
-import Data.Text.IO qualified as Text.IO
 import Data.Text (Text)
+import Data.Text qualified as Text
+import Data.Text.IO qualified as Text.IO
+
+import Prelude hiding (exp)
 
 import System.Environment (getArgs)
 import System.Exit qualified as Exit
@@ -15,7 +18,7 @@ import Text.Parsel qualified as Parsel
 
 --------------------------------------------------------------------------------
 
-import Opal.Core (Expr, Datum)
+import Opal.Core (Expr)
 
 import Opal.Expand.Syntax (Syntax)
 
@@ -23,13 +26,11 @@ import Opal.Print qualified as Print
 
 import Opal.Read qualified as Read
 
+import Opal.Expand qualified as Expand
 import Opal.Parse qualified as Parse
-import Opal.Run.Command (Command (CmdEval, CmdParse, CmdRead, CmdExpand))
+import Opal.Run.Command (Command (..))
 import Opal.Run.Parse qualified as Parse
-import qualified Opal.Evaluate as Eval
-import qualified Opal.Expand as Expand
-import qualified Data.Text as Text
-import Opal.Expand.Syntax.MultiScopeSet (Phase(Phase))
+import Opal.Core.Datum (Datum)
 
 --------------------------------------------------------------------------------
 
@@ -40,39 +41,39 @@ main = do
     CmdEval filepaths ->
       for_ filepaths \filepath -> do
         source <- getOpalFileIO filepath
-        value <- evalOpalIO source
-        IO.hPutStrLn IO.stdout (filepath ++ ": evaluated expression: ")
-        Text.IO.hPutStrLn IO.stdout (Print.pprDatum value)
+        expr <- evalOpalIO source
+        putStrLn (filepath ++ ": expanded+evaluated expression: ")
+        Text.IO.hPutStrLn IO.stdout (Print.pprDatum expr)
     CmdExpand filepaths ->
       for_ filepaths \filepath -> do
         source <- getOpalFileIO filepath
-        stx <- expandOpalIO source
-        IO.hPutStrLn IO.stdout (filepath ++ ": expanded expression: ")
-        Text.IO.hPutStrLn IO.stdout (Print.pprSyntax stx)
+        stxs <- expandOpalIO source
+        putStrLn (filepath ++ ": expanded expression: ")
+        Text.IO.hPutStrLn IO.stdout (Print.pprSyntax stxs)
     CmdParse filepaths ->
       for_ filepaths \filepath -> do
         source <- getOpalFileIO filepath
-        sexp <- parseOpalIO source
-        IO.hPutStrLn IO.stdout (filepath ++ ": parsed expression: ")
-        Text.IO.hPutStrLn IO.stdout (Print.pprSExp sexp)
+        expr <- parseOpalIO source
+        putStrLn (filepath ++ ": parsed expression: ")
+        Text.IO.hPutStrLn IO.stdout (Print.pprExpr expr)
     CmdRead filepaths ->
       for_ filepaths \filepath -> do
         source <- getOpalFileIO filepath
-        syntax <- readOpalIO source
-        IO.hPutStrLn IO.stdout (filepath ++ ": read syntax: ")
-        Text.IO.hPutStrLn IO.stdout (Print.pprSyntax syntax)
+        stx <- readOpalIO source
+        putStrLn (filepath ++ ": read syntax: ")
+        Text.IO.hPutStrLn IO.stdout (Print.pprSyntax stx)
 
 evalOpalIO :: Text -> IO Datum
-evalOpalIO source = do 
-  sexp <- parseOpalIO source 
-  case Eval.runKernalEval sexp of 
+evalOpalIO source = do
+  stx <- readOpalIO source
+  case Expand.runSyntaxEval stx of
     Left exn -> throwIO (ErrorCall $ show exn)
-    Right val -> pure val
+    Right stx' -> pure stx'
 
 expandOpalIO :: Text -> IO Syntax
-expandOpalIO source = do 
-  stx <- readOpalIO source 
-  case Expand.runExpandSyntax stx of 
+expandOpalIO source = do
+  stx <- readOpalIO source
+  case Expand.runSyntaxExpand stx of
     Left exn -> throwIO (ErrorCall $ show exn)
     Right stx' -> pure stx'
 
@@ -81,7 +82,7 @@ parseOpalIO source = do
   syntax <- readOpalIO source
   case Parse.evalParseExpr syntax of
     Left exn -> throwIO (ErrorCall $ show exn)
-    Right sexp -> pure sexp
+    Right decls -> pure decls
 
 readOpalIO :: Text -> IO Syntax
 readOpalIO source =
@@ -97,7 +98,7 @@ getExecCommand = do
   args <- getArgs
   case NonEmpty.nonEmpty args of
     Just {} ->
-      let input :: Text 
+      let input :: Text
           input = Text.unwords (map Text.pack args)
        in case Parsel.parse input Parse.pCommand of
             Left exn -> throwIO (ErrorCall $ show exn)

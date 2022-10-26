@@ -2,6 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 module Opal.Expand.Syntax.ScopeSet
   ( -- * ScopeId
@@ -47,7 +48,7 @@ import Control.Monad.ST (runST)
 import Data.Coerce (coerce)
 import Data.Data (Data)
 import Data.Foldable (for_)
-import Data.IntSet (IntSet)
+import Data.IntSet.Internal (IntSet (..))
 import Data.IntSet qualified as IntSet
 import Data.Kind (Type)
 import Data.Primitive.MutVar (modifyMutVar', newMutVar, readMutVar, writeMutVar)
@@ -55,6 +56,8 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 
 import GHC.Exts (IsList, Item, fromList, toList)
+
+import Language.Haskell.TH.Syntax (Lift)
 
 import Prelude hiding (maximum, null)
 
@@ -64,7 +67,7 @@ import Prelude hiding (maximum, null)
 --
 -- @since 1.0.0
 newtype ScopeId = ScopeId Int
-  deriving (Enum, Eq, Integral, Ord, Num, Real)
+  deriving (Data, Enum, Eq, Integral, Ord, Num, Real, Lift)
 
 -- | @since 1.0.0
 instance Show ScopeId where
@@ -73,12 +76,14 @@ instance Show ScopeId where
 
 -- ScopeSet --------------------------------------------------------------------
 
+deriving instance Lift IntSet
+
 -- | TODO
 --
 -- @since 1.0.0
 newtype ScopeSet :: Type where
   ScopeSet :: IntSet -> ScopeSet
-  deriving (Data, Eq, Ord)
+  deriving (Data, Eq, Ord, Lift)
 
 -- | @since 1.0.0
 instance IsList ScopeSet where
@@ -103,8 +108,8 @@ instance Monoid ScopeSet where
 -- | @since 1.0.0
 instance Show ScopeSet where
   show scopes
-    | null scopes = "#set{}"
-    | otherwise = "#set{" ++ unwords (foldr' ((:) . show) [] scopes) ++ "}"
+    | null scopes = "#scopes{}"
+    | otherwise = "#scopes{" ++ unwords (foldr' ((:) . show) [] scopes) ++ "}"
   {-# INLINE show #-}
 
 -- | TODO

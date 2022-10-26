@@ -11,7 +11,7 @@ import Data.Kind (Type)
 --------------------------------------------------------------------------------
 
 data Command :: Type where 
-  CmdEval :: [FilePath] -> Command 
+  CmdEval :: [FilePath] -> Command
   CmdExpand :: [FilePath] -> Command
   CmdParse :: [FilePath] -> Command
   CmdRead :: [FilePath] -> Command

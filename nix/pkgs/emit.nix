@@ -1,18 +1,17 @@
-{ mkDerivation, base, fetchgit, ghc-prim, lib, mtl, prim-bool
-, prim-char, prim-int, prim-ord, primitive, template-haskell, text
+{ mkDerivation, base, fetchgit, ghc-prim, lib, mtl, primitive
+, template-haskell, text
 }:
 mkDerivation {
   pname = "emit";
   version = "1.0.0";
   src = fetchgit {
     url = "https://github.com/riz0id/emit";
-    sha256 = "12p2yc9254br95xirzf9z386gliwmkq6m1rp6ad9awgh0435425w";
-    rev = "abbc700bc2dceb77c5545656cb53f420cc1ce5b0";
+    sha256 = "1wnibk77qxm17wf5jlw3z20cvsgdkdgbchrl9k076zhkhvdj6gyv";
+    rev = "3dfaca543e241a049717c90d617425420466576c";
     fetchSubmodules = true;
   };
   libraryHaskellDepends = [
-    base ghc-prim mtl prim-bool prim-char prim-int prim-ord primitive
-    template-haskell text
+    base ghc-prim mtl primitive template-haskell text
   ];
   homepage = "https://github.com/riz0id/emit";
   description = "TODO";

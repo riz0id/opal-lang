@@ -13,7 +13,7 @@ module Opal.Expand.Syntax.BindStore
 
     -- * Insert
     insert,
-    insertCoreForm,
+    insertCoreBind,
   )
 where
 
@@ -30,8 +30,8 @@ import GHC.Exts (IsList, Item, fromList, toList)
 
 import Opal.Common.Name (Name)
 
-import Opal.Core.CoreForm (CoreForm)
-import Opal.Core.CoreForm qualified as CoreForm
+import Opal.Core.Form (CoreForm)
+import Opal.Core.Form qualified as Core.Form
 import Opal.Expand.Syntax.Binding (Binding)
 import Opal.Expand.Syntax.Binding qualified as Binding
 import Opal.Expand.Syntax.ScopeSet (ScopeSet)
@@ -79,11 +79,12 @@ coreSyntax :: BindStore
 coreSyntax =
   let forms :: [CoreForm]
       forms =
-        [ CoreForm.CoreFormLambda
-        , CoreForm.CoreFormLetSyntax
-        , CoreForm.CoreFormSyntax
+        [ Core.Form.Lambda
+        , Core.Form.LetSyntax
+        , Core.Form.Syntax
+        , Core.Form.DefineValue
         ]
-   in foldr insertCoreForm empty forms
+   in foldr (insertCoreBind . Core.Form.toName) empty forms
 
 -- Index -----------------------------------------------------------------------
 
@@ -109,11 +110,10 @@ insert name bind (BindStore kxs) =
     alter Nothing = 
       Just (Map.singleton bind.scopes bind.binder)
     alter (Just binds) = 
-      -- Just (Map.insert bind.scopes bind.binder bindings)
-      error ("overwriting existing binding: " ++ show binds ++ ", in: " ++ show kxs)
+      Just (Map.insert bind.scopes bind.binder binds)
 
 -- | TODO
 --
 -- @since 1.0.0
-insertCoreForm :: CoreForm -> BindStore -> BindStore
-insertCoreForm form = insert (CoreForm.toName form) (Binding.makeCoreFormBinding form)
+insertCoreBind :: Name -> BindStore -> BindStore
+insertCoreBind name = insert name (Binding.makeCoreBinding name)

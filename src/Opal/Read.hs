@@ -7,6 +7,7 @@ module Opal.Read
     runRead,
 
     -- * TODO
+    rTopLevelSyntax,
     rStxPrimFalse,
     rStxPrimTrue,
   )
@@ -17,7 +18,6 @@ import Control.Applicative (many, some, (<|>))
 import Data.SrcLoc (SrcLoc)
 import Data.SrcLoc qualified as SrcLoc
 import Data.Text (Text)
-import Data.Text qualified as Text
 
 import Prelude hiding (Read)
 
@@ -28,7 +28,7 @@ import Text.Parsel qualified as Parsel
 
 import Opal.Common.Symbol qualified as Symbol
 
-import Opal.Expand.Syntax (StxCtx (StxCtx), Syntax (StxAtom, StxList))
+import Opal.Expand.Syntax (StxCtx (StxCtx), Syntax (StxAtom, StxList, StxBool))
 import Opal.Expand.Syntax.MultiScopeSet qualified as MultiScopeSet
 
 -- TODO ------------------------------------------------------------------------
@@ -40,6 +40,15 @@ runRead :: Text -> Either ParseError Syntax
 runRead src = Parsel.parse src rSyntax
 
 -- TODO ------------------------------------------------------------------------
+
+-- | TODO
+--
+-- @since 1.0.0
+makeStxBool :: SrcLoc -> Bool -> Syntax
+makeStxBool srcloc bool =
+  let context :: StxCtx
+      context = StxCtx srcloc 2 MultiScopeSet.empty
+   in StxBool context bool 
 
 -- | TODO
 --
@@ -64,8 +73,23 @@ makeStxList begin end stxs =
 -- | TODO
 --
 -- @since 1.0.0
+rTopLevelSyntax :: Grammar Syntax
+rTopLevelSyntax = do 
+  Parsel.whitespaces 
+  loc0 <- Parsel.location
+  stxs <- many rSyntax 
+  loc1 <- Parsel.location
+  pure (makeStxList loc0 loc1 stxs)
+
+-- | TODO
+--
+-- @since 1.0.0
 rSyntax :: Grammar Syntax
-rSyntax = many Parsel.whitespace *> Parsel.choice [rStxPrim, rStxAtom, rStxList]
+rSyntax = do 
+  Parsel.whitespaces
+  stx <- Parsel.choice [rStxPrim, rStxAtom, rStxList]
+  Parsel.whitespaces 
+  pure stx
 
 -- | TODO
 --
@@ -78,6 +102,7 @@ rStxPrim =
     , rStxPrimQuote
     , rStxPrimUnquote
     , rStxPrimSyntax
+    , rPrimQuasiSyntax
     , rStxPrimUnsyntax
     ]
 
@@ -87,8 +112,8 @@ rStxPrim =
 rStxPrimFalse :: Grammar Syntax
 rStxPrimFalse = do
   srcloc <- Parsel.location
-  symbol <- fmap Text.unpack (Parsel.string "#f")
-  pure (makeStxAtom srcloc symbol)
+  Parsel.string "#f" <|> Parsel.string "#F"
+  pure (makeStxBool srcloc False)
 
 -- | TODO
 --
@@ -96,8 +121,8 @@ rStxPrimFalse = do
 rStxPrimTrue :: Grammar Syntax
 rStxPrimTrue = do
   srcloc <- Parsel.location
-  symbol <- fmap Text.unpack (Parsel.string "#t")
-  pure (makeStxAtom srcloc symbol)
+  Parsel.string "#t" <|> Parsel.string "#t"
+  pure (makeStxBool srcloc True)
 
 -- | TODO
 --
@@ -198,6 +223,15 @@ rPrimSyntax = do
   srcloc <- Parsel.location
   Parsel.string "#'"
   pure (makeStxAtom srcloc "syntax")
+
+-- | TODO
+--
+-- @since 1.0.0
+rPrimQuasiSyntax :: Grammar Syntax
+rPrimQuasiSyntax = do
+  srcloc <- Parsel.location
+  Parsel.string "#`"
+  pure (makeStxAtom srcloc "quasisyntax")
 
 -- | TODO
 --

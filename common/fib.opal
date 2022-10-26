@@ -1,7 +1,5 @@
-
 (let-syntax 
-  ([true (syntax #t)])
-  (let-syntax 
-    ([test (lambda (_) 
-      (syntax-local-value #'true))])
-    test))
+  ([false (lambda (_) 
+      (define-value f #f)
+      (syntax f))])
+  false)

@@ -6,7 +6,6 @@ module Opal.Run.Parse
 
     -- * TODO
     pCommand,
-    pCmdEval,
     pCmdExpand,
     pCmdParse,
     pCmdRead,
@@ -24,7 +23,7 @@ import Text.Parsel qualified as Parsel
 
 --------------------------------------------------------------------------------
 
-import Opal.Run.Command (Command (CmdEval, CmdExpand, CmdParse, CmdRead))
+import Opal.Run.Command (Command (..))
 
 --------------------------------------------------------------------------------
 
