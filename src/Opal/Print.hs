@@ -43,7 +43,7 @@ import Opal.Core.Datum (Datum)
 import Opal.Core.Datum qualified as Datum
 
 import Opal.Core.Prim qualified as Core.Prim
-import Opal.Expand.Syntax (StxCtx, Syntax (StxAtom, StxList, StxBool))
+import Opal.Expand.Syntax (StxCtx, Syntax (StxAtom, StxList, StxBool, StxPair))
 import Opal.Expand.Syntax qualified as Syntax
 import qualified Data.Map.Strict as Map
 
@@ -82,6 +82,12 @@ docExpr :: Expr -> Doc a
 docExpr (SExpVal val) = docDatum val
 docExpr (SExpVar var) = docSExpVar var
 docExpr (SExpApp fun args) = docSExpApp fun args
+docExpr (SExpIf c e0 e1) = 
+  (Emit.parens . Emit.hsep)
+    ["if" <+> docExpr c
+    , docExpr e0
+    , docExpr e1
+    ]
 docExpr (SExpLet vars body) = 
   (Emit.parens . Emit.hsep)
     ["let"
@@ -130,6 +136,12 @@ docDatum :: Datum -> Doc a
 docDatum (Datum.Stx stx) = docSyntax stx
 docDatum (Datum.Atom atom) = emit atom
 docDatum (Datum.Bool bool) = if bool then "#t" else "#f"
+docDatum (Datum.Pair lhs rhs) =
+  (Emit.parens . Emit.hsep)
+    [ docDatum lhs 
+    , "."
+    , docDatum rhs
+    ]
 docDatum (Datum.Prim prim) = emit (Core.Prim.toName prim)
 docDatum (Datum.Proc vars body) =
   (Emit.parens . Emit.hsep)
@@ -147,6 +159,7 @@ docDatum (Datum.List vals) =
 -- @since 1.0.0
 docSyntax :: Syntax -> Doc a
 docSyntax (StxBool ctx atom) = docStxBool ctx atom
+docSyntax (StxPair ctx stx0 stx1) = docStxPair ctx stx0 stx1
 docSyntax (StxAtom ctx atom) = docStxAtom ctx atom
 docSyntax (StxList ctx stxs) = docStxList ctx stxs
 
@@ -154,7 +167,21 @@ docSyntax (StxList ctx stxs) = docStxList ctx stxs
 --
 -- @since 1.0.0
 docStxCtx :: StxCtx -> Doc a
-docStxCtx ctx = emit ctx.location.line <> ":" <> emit ctx.location.coln
+docStxCtx ctx = 
+  case ctx.location of 
+    Nothing -> mempty
+    Just loc -> emit loc.line <> ":" <> emit loc.coln
+
+-- | TODO
+--
+-- @since 1.0.0
+docStxPair :: StxCtx -> Syntax -> Syntax -> Doc a
+docStxPair ctx stx0 stx1 =
+  Emit.hsep 
+    [ "#<syntax:" <> docStxCtx ctx <> ":" 
+    , docSyntax stx0
+    , docSyntax stx1 <> ">"
+    ]
 
 -- | TODO
 --
@@ -182,5 +209,6 @@ docStxList ctx stxs =
   where
     docStxElem :: Syntax -> Doc a
     docStxElem (StxBool _ bool) = if bool then "#t" else "#f"
+    docStxElem (StxPair ctx' stx0 stx1) = docStxPair ctx' stx0 stx1
     docStxElem (StxAtom _ atom) = emit atom
     docStxElem (StxList _ stxs') = Emit.parens (Emit.hsep (map docStxElem stxs'))

@@ -1,15 +1,9 @@
 
-module Test 
-  ( main 
-  )
-where 
+module Test (main) where 
 
 import Test.Compat ( testGroup, TestTree )
 import Test.Tasty (defaultMain)
-
---------------------------------------------------------------------------------
-
-import Test.Expand qualified
+import Test.Opal qualified
 
 --------------------------------------------------------------------------------
 
@@ -20,5 +14,5 @@ testTree :: TestTree
 testTree = 
   testGroup 
     "Test"
-    [ Test.Expand.testTree
+    [ Test.Opal.testTree
     ]

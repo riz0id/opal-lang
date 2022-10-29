@@ -2,6 +2,7 @@
 
 module Opal.Expand.Core (
   parse,
+  resolveIdt,
   indexTransformers,
 
   -- * Phase Operations
@@ -23,12 +24,14 @@ module Opal.Expand.Core (
   introBinding,
 
   -- ** Core Bindings
+  introCoreBind,
   introCoreBinds,
 
   -- ** Core Syntactic Forms
   introCoreForms,
 
   -- ** Core Primitives
+  introPrimBind,
   introCorePrims,
 ) where
 
@@ -73,6 +76,7 @@ import qualified Opal.Expand.Syntax.ScopeSet as ScopeSet
 
 import Opal.Parse (Parse)
 import Opal.Parse qualified as Parse
+import Opal.Expand.Resolve (resolveName)
 
 --------------------------------------------------------------------------------
 
@@ -86,6 +90,12 @@ parse px = do
     Left exn -> throwError (ExnParseError exn)
     Right sexp -> pure sexp
 {-# INLINE parse #-}
+
+-- | TODO
+--
+-- @since 1.0.0
+resolveIdt :: StxIdt -> Expand Transform 
+resolveIdt idt = indexTransformers =<< resolveName idt 
 
 -- | TODO
 --
@@ -248,10 +258,10 @@ introCorePrims :: Expand ()
 introCorePrims =
   let corePrims :: [CorePrim]
       corePrims = [minBound .. maxBound]
-   in traverse_ introCorePrimBind corePrims
+   in traverse_ introPrimBind corePrims
 
 -- | TODO
 --
 -- @since 1.0.0
-introCorePrimBind :: CorePrim -> Expand ()
-introCorePrimBind = introCoreBind . Core.Prim.toName
+introPrimBind :: CorePrim -> Expand ()
+introPrimBind = introCoreBind . Core.Prim.toName

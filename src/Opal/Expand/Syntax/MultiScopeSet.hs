@@ -1,6 +1,8 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Opal.Expand.Syntax.MultiScopeSet
   ( -- * PhaseId
@@ -69,12 +71,14 @@ instance Show Phase where
 
 -- MultiScopeSet ---------------------------------------------------------------
 
+deriving instance Lift a => Lift (IntMap a) 
+
 -- | TODO
 --
 -- @since 1.0.0
 newtype MultiScopeSet :: Type where
   MultiScopeSet :: IntMap ScopeSet -> MultiScopeSet
-  deriving (Data, Eq, Ord)
+  deriving (Data, Eq, Ord, Lift)
 
 -- | @since 1.0.0
 instance Show MultiScopeSet where 

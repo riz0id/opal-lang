@@ -27,12 +27,17 @@ import Opal.Common.Symbol qualified as Symbol
 -- @since
 data CorePrim
   = Apply 
+  | Cons
   | DatumToSyntax
   | GenSym
   | Head
   | List 
+  | Map
   | IsList 
+  | IsProcedure
+  | IsPair
   | IsSyntax 
+  | IsSymbol
   | SyntaxToDatum
   | SyntaxLocalValue
   | SyntaxExpr
@@ -43,12 +48,17 @@ data CorePrim
 
 toName :: CorePrim -> Name
 toName Apply = "apply"
+toName Cons = "cons"
 toName GenSym = "gensym"
 toName List = "list"
+toName Map = "map"
 toName IsList = "list?"
 toName Head = "head"
 toName Tail = "tail"
+toName IsProcedure = "procedure?"
 toName IsSyntax = "syntax?"
+toName IsPair = "pair?"
+toName IsSymbol = "symbol?"
 toName DatumToSyntax = "datum->syntax"
 toName SyntaxToDatum = "syntax->datum"
 toName SyntaxLocalValue = "syntax-local-value"

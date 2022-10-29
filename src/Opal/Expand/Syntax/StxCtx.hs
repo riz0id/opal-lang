@@ -5,7 +5,6 @@ module Opal.Expand.Syntax.StxCtx
     
     -- ** Lenses 
     stxCtxSrcLoc,
-    stxCtxLength,
     stxCtxMultiscope,
 
     -- ** Modification
@@ -17,7 +16,8 @@ import Control.Lens (Lens', lens, over)
 
 import Data.Data (Data)
 import Data.SrcLoc (SrcLoc)
-import Data.SrcLoc qualified as SrcLoc
+
+import Language.Haskell.TH.Syntax (Lift)
 
 import Prelude hiding (length)
 
@@ -33,22 +33,10 @@ import Opal.Expand.Syntax.MultiScopeSet qualified as MultiScopeSet
 --
 -- @since 1.0.0
 data StxCtx = StxCtx
-  { location :: {-# UNPACK #-} !SrcLoc
-  , length :: {-# UNPACK #-} !Int
+  { location :: Maybe SrcLoc
   , multiscope :: MultiScopeSet
   }
-  deriving (Data, Eq, Ord)
-
--- | @since 1.0.0
-instance Show StxCtx where
-  show (StxCtx loc len sc) =
-    "(StxCtx:"
-      ++ shows loc.posn ":"
-      ++ shows loc.line ":"
-      ++ shows loc.coln " "
-      ++ shows len " "
-      ++ shows sc ")"
-  {-# INLINE show #-}
+  deriving (Data, Eq, Ord, Lift, Show)
 
 -- Construction ----------------------------------------------------------------
 
@@ -63,14 +51,8 @@ instance Show StxCtx where
 -- | TODO
 --
 -- @since 1.0.0
-stxCtxSrcLoc :: Lens' StxCtx SrcLoc
+stxCtxSrcLoc :: Lens' StxCtx (Maybe SrcLoc)
 stxCtxSrcLoc = lens location \stxctx loc -> stxctx {location = loc}
-
--- | TODO
---
--- @since 1.0.0
-stxCtxLength :: Lens' StxCtx Int
-stxCtxLength = lens length \stxctx len -> stxctx {length = len}
 
 -- | TODO
 --

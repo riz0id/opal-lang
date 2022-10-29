@@ -1,3 +1,6 @@
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
+
 -- |
 -- Module      :  Opal.Common.Name
 -- Copyright   :  (c) Jacob Leach, 2022
@@ -19,6 +22,7 @@ module Opal.Common.Name
 
     -- * Query
     size,
+    null,
     ptr,
 
     -- * Comparison
@@ -30,7 +34,6 @@ import Data.Bool.Prim qualified as Bool
 import Data.ByteArray.Prim (ByteArray#)
 import Data.ByteArray.Prim qualified as ByteArray
 import Data.Data (Data, dataTypeOf, gunfold, mkNoRepType, toConstr)
-import Data.Kind (Type)
 import Data.Ord.Prim ((==#))
 import Data.String (IsString)
 import Data.Text qualified as Text
@@ -38,6 +41,10 @@ import Data.Text qualified as Text
 import GHC.Exts (Int (I#))
 import GHC.Exts qualified as GHC
 import GHC.Ptr (Ptr (Ptr))
+
+import Language.Haskell.TH.Syntax (Lift, lift, unsafeCodeCoerce, liftTyped)
+
+import Prelude hiding (null)
 
 import Text.Emit (Emit, emit)
 import Text.Emit qualified as Emit
@@ -47,8 +54,7 @@ import Text.Emit qualified as Emit
 -- | 'Name' represents a symbollic name.
 --
 -- @since 1.0.0
-data Name :: Type where
-  Name :: ByteArray# -> Name
+data Name = Name ByteArray#
 
 -- | @since 1.0.0
 instance Data Name where
@@ -65,6 +71,16 @@ instance Data Name where
 instance Eq Name where
   Name xs# == Name ys# = Bool.toBool (xs# ==# ys#)
   {-# INLINE (==) #-}
+
+-- | @since 1.0.0
+instance Lift Name where 
+  lift name
+    | null name = [| pack "" |]
+    | otherwise = [| pack $(lift (unpack name)) |]
+  {-# INLINE lift #-}
+
+  liftTyped name = unsafeCodeCoerce (lift name) 
+  {-# INLINE liftTyped #-}
 
 -- | @since 1.0.0
 instance Ord Name where
@@ -110,6 +126,13 @@ unpack (Name xs#) = map (toEnum . fromIntegral) (ByteArray.unpack# xs#)
 size :: Name -> Int
 size (Name s#) = I# (ByteArray.size# s#)
 {-# INLINE size #-}
+
+-- | \(\mathcal{O}(1)\). Obtains the length of a 'Name' in characters.
+--
+-- @since 1.0.0
+null :: Name -> Bool
+null nm = size nm == 0 
+{-# INLINE null #-}
 
 -- | Obtains a character pointer addressing a 'Name'.
 --

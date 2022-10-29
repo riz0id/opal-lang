@@ -3,7 +3,7 @@
 
 module Opal.Expand.Syntax (
   -- * Syntax
-  Syntax (StxBool, StxAtom, StxList, content, context),
+  Syntax (StxBool, StxPair, StxAtom, StxList, content, context),
 
   -- ** Construction
   makeSyntax,
@@ -26,10 +26,11 @@ import Data.Data (Data)
 
 import GHC.Records (HasField, getField)
 
+import Language.Haskell.TH.Syntax (Lift)
+
 --------------------------------------------------------------------------------
 
 import Opal.Common.Symbol (Symbol)
-import Opal.Common.Symbol qualified as Symbol
 
 import Opal.Expand.Syntax.MultiScopeSet (Phase)
 import Opal.Expand.Syntax.MultiScopeSet qualified as MultiScopeSet
@@ -46,11 +47,12 @@ data Syntax = Syntax
   { content :: StxData
   , context :: {-# UNPACK #-} !StxCtx
   }
-  deriving (Data, Eq, Ord)
+  deriving (Data, Eq, Ord, Lift)
 
 -- @since 1.0.0
 instance Show Syntax where
   show (StxBool ctx bool) = "(StxBool " ++ shows ctx " " ++ shows bool ")"
+  show (StxPair ctx s0 s1) = "(StxPair " ++ shows ctx " " ++ shows s0 " " ++ shows s1 ")"
   show (StxAtom ctx atom) = "(StxAtom " ++ shows ctx " " ++ shows atom ")"
   show (StxList ctx stxs) = "(StxList " ++ shows ctx " " ++ shows stxs ")"
   {-# INLINE show #-}
@@ -66,6 +68,12 @@ pattern StxBool ctx atom = Syntax (Bool atom) ctx
 -- | TODO
 --
 -- @since 1.0.0
+pattern StxPair :: StxCtx -> Syntax -> Syntax -> Syntax
+pattern StxPair ctx stx1 stx2 = Syntax (Pair stx1 stx2) ctx
+
+-- | TODO
+--
+-- @since 1.0.0
 pattern StxAtom :: StxCtx -> Symbol -> Syntax
 pattern StxAtom ctx atom = Syntax (Atom atom) ctx
 
@@ -75,13 +83,13 @@ pattern StxAtom ctx atom = Syntax (Atom atom) ctx
 pattern StxList :: StxCtx -> [Syntax] -> Syntax
 pattern StxList ctx stxs = Syntax (List stxs) ctx
 
-{-# COMPLETE StxBool, StxAtom, StxList #-}
+{-# COMPLETE StxBool, StxPair, StxAtom, StxList #-}
 
 -- | TODO
 --
 -- @since 1.0.0
 makeSyntax :: Syntax -> Symbol -> Syntax
-makeSyntax stx sym = StxAtom stx.context {length = Symbol.length sym} sym
+makeSyntax stx = StxAtom stx.context 
 
 -- Syntax - Scopes -------------------------------------------------------------
 
@@ -89,52 +97,40 @@ makeSyntax stx sym = StxAtom stx.context {length = Symbol.length sym} sym
 --
 -- @since 1.0.0
 scope :: Phase -> ScopeId -> Syntax -> Syntax
-scope ph sc (StxBool ctx bool) =
-  let ctx' :: StxCtx
-      ctx' = adjust ph (ScopeSet.insert sc) ctx
-   in StxBool ctx' bool
-scope ph sc (StxAtom ctx atom) =
-  let ctx' :: StxCtx
-      ctx' = adjust ph (ScopeSet.insert sc) ctx
-   in StxAtom ctx' atom
 scope ph sc (StxList ctx stxs) =
   let ctx' :: StxCtx
       ctx' = adjust ph (ScopeSet.insert sc) ctx
    in StxList ctx' (map (scope ph sc) stxs)
+scope ph sc stx =
+  let ctx' :: StxCtx
+      ctx' = adjust ph (ScopeSet.insert sc) stx.context
+   in Syntax stx.content ctx'
 
 -- | TODO
 --
 -- @since 1.0.0
 flips :: Phase -> ScopeId -> Syntax -> Syntax
-flips ph sc (StxBool ctx bool) =
-  let ctx' :: StxCtx
-      ctx' = adjust ph (ScopeSet.flips sc) ctx
-   in StxBool ctx' bool
-flips ph sc (StxAtom ctx atom) =
-  let ctx' :: StxCtx
-      ctx' = adjust ph (ScopeSet.flips sc) ctx
-   in StxAtom ctx' atom
 flips ph sc (StxList ctx stxs) =
   let ctx' :: StxCtx
       ctx' = adjust ph (ScopeSet.flips sc) ctx
    in StxList ctx' (map (flips ph sc) stxs)
+flips ph sc stx =
+  let ctx' :: StxCtx
+      ctx' = adjust ph (ScopeSet.flips sc) stx.context
+   in Syntax stx.content ctx' 
 
 -- | TODO
 --
 -- @since 1.0.0
 prune :: Phase -> ScopeSet -> Syntax -> Syntax
-prune ph sc (StxBool ctx bool) =
-  let ctx' :: StxCtx
-      ctx' = adjust ph (`ScopeSet.difference` sc) ctx
-   in StxBool ctx' bool
-prune ph sc (StxAtom ctx atom) =
-  let ctx' :: StxCtx
-      ctx' = adjust ph (`ScopeSet.difference` sc) ctx
-   in StxAtom ctx' atom
 prune ph sc (StxList ctx stxs) =
   let ctx' :: StxCtx
       ctx' = adjust ph (`ScopeSet.difference` sc) ctx
    in StxList ctx' (map (prune ph sc) stxs)
+prune ph sc stx =
+  let ctx' :: StxCtx
+      ctx' = adjust ph (`ScopeSet.difference` sc) stx.context
+   in Syntax stx.content ctx' 
 
 -- | TODO
 --
@@ -172,5 +168,6 @@ scopeIdt ph sc (StxIdt ctx sym) = StxIdt (adjust ph (ScopeSet.insert sc) ctx) sy
 data StxData 
   = Bool Bool
   | Atom Symbol
+  | Pair Syntax Syntax
   | List [Syntax]
-  deriving (Data, Eq, Ord)
+  deriving (Data, Eq, Lift, Ord)

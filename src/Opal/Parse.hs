@@ -60,6 +60,7 @@ import Opal.Expand.Syntax.Binding qualified as Binding
 import Opal.Expand.Syntax.MultiScopeSet (Phase (Phase))
 import Opal.Expand.Syntax.ScopeSet (ScopeId (ScopeId))
 import qualified Data.List.NonEmpty as NonEmpty
+import qualified Opal.Core.Prim as Core.Prim
 
 -- TODO ------------------------------------------------------------------------
 
@@ -172,6 +173,8 @@ data ParseError
   | -- | TODO
     ExnParseLet [Syntax]
   | -- | TODO 
+    ExnParseIf Syntax [Syntax]
+  | -- | TODO 
     ExnParseModule Syntax
   | -- | TODO
     ExnParseLetBind Syntax
@@ -262,8 +265,14 @@ pDeclaration stx = do
 --
 -- @since 1.0.0
 pSyntax :: Syntax -> Parse Expr
-pSyntax (StxBool ctx bool) = pure (SExpVal (Datum.Bool bool)) 
-pSyntax (StxAtom ctx atom) = pStxAtom ctx atom
+pSyntax (StxBool _ bool) = 
+  pure (SExpVal (Datum.Bool bool)) 
+pSyntax (StxPair _ stx0 stx1) = do 
+  lhs <- pSyntax stx0 
+  rhs <- pSyntax stx1
+  pure (SExpApp (SExpVal (Datum.Prim Core.Prim.Cons)) [lhs, rhs]) 
+pSyntax (StxAtom ctx atom) = 
+  pStxAtom ctx atom
 pSyntax (StxList ctx stxs) = case stxs of
   [] -> throwError (ExnMissingProc (StxList ctx stxs))
   stx : stxs' -> pStxList stx stxs'
@@ -295,17 +304,25 @@ pStxAtom ctx atom = fmap SExpVar (resolve ctx atom)
 pStxList :: Syntax -> [Syntax] -> Parse Expr
 pStxList (StxBool ctx atom) stxs = 
   pure (error ("attempt to call boolean as a procedure"))
+pStxList (StxPair ctx s s') stxs = 
+  pure (error ("attempt to call pair as a procedure"))
 pStxList (StxAtom ctx atom) stxs = do
   resolve ctx atom >>= \case
     "quote" -> do 
       pStxQuote stxs
-    "syntax" -> do 
-      ph <- asks phase 
-      if ph == Phase 0
-        then pure (error ("illegal use of syntax at phase " ++ show ph)) 
-        else pStxSyntax stxs
+    "quote-syntax" -> do 
+      pStxSyntax stxs
     "quasisyntax" -> do 
       pStxSyntax stxs
+    "if" -> do
+      case stxs of 
+        [stx'c, stx'e0, stx'e1] -> do
+          expr'c <- pSyntax stx'c
+          expr'e0 <- pSyntax stx'e0
+          expr'e1 <- pSyntax stx'e1
+          pure (SExpIf expr'c expr'e0 expr'e1)
+        _ -> do 
+          throwError (ExnParseIf (StxAtom ctx atom) stxs)
     "let" -> do
       (vars, body) <- pLet stxs
       pure (SExpLet vars body)
@@ -349,11 +366,16 @@ pStxFormals stx = do
 --
 -- @since 1.0.0
 pStxFormalIdts :: Syntax -> Parse [StxIdt]
-pStxFormalIdts (StxBool ctx atom) = pure (error ("using boolean as formal"))
-pStxFormalIdts (StxAtom ctx atom) = pure [StxIdt ctx atom]
+pStxFormalIdts (StxBool _ _) = 
+  pure (error ("using boolean as formal"))
+pStxFormalIdts (StxPair _ _ _) = 
+  pure (error ("using pair as formal"))
+pStxFormalIdts (StxAtom ctx atom) = 
+  pure [StxIdt ctx atom]
 pStxFormalIdts (StxList ctx vars) = do
   for vars \case
-    StxBool ctx bool -> pure (error ("using boolean as formal"))
+    StxBool _ _ -> pure (error ("using boolean as formal"))
+    StxPair _ _ _ -> pure (error ("using pair as formal"))
     StxAtom ctx' atom -> pure (StxIdt ctx' atom)
     StxList {} -> throwError (ExnParseLambda [StxList ctx vars])
 

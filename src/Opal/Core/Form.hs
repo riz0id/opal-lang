@@ -25,14 +25,15 @@ import Opal.Common.Symbol qualified as Symbol
 -- @since 1.0.0
 data CoreForm
   = DefineValue 
-  | DefineSyntax
+  | DefineSyntaxValue
+  | If
   | Lambda
   | Let
   | LetSyntax
   | Module
   | Quote
   | Require
-  | Syntax
+  | QuoteSyntax
   | QuasiSyntax
   | Unsyntax
   deriving (Bounded, Data, Enum, Eq, Ord, Show, Lift)
@@ -48,14 +49,15 @@ toSymbol prim = Symbol.Symbol (toName prim)
 -- @since 1.0.0
 toName :: CoreForm -> Name
 toName DefineValue = Name.pack "define-value"
-toName DefineSyntax = Name.pack "define-syntax"
+toName DefineSyntaxValue = Name.pack "define-syntax-value"
+toName If = Name.pack "if"
 toName Lambda = Name.pack "lambda"
 toName Let = Name.pack "let"
 toName LetSyntax = Name.pack "let-syntax"
 toName Module = Name.pack "module"
 toName Quote = Name.pack "quote"
 toName Require = Name.pack "#%require"
-toName Syntax = Name.pack "syntax"
+toName QuoteSyntax = Name.pack "quote-syntax"
 toName QuasiSyntax = Name.pack "quasisyntax"
 toName Unsyntax = Name.pack "unsyntax"
 

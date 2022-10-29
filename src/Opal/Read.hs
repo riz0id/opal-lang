@@ -1,6 +1,9 @@
 {-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE TypeApplications #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use <$>" #-}
 
 module Opal.Read
   ( -- * TODO
@@ -16,7 +19,6 @@ where
 import Control.Applicative (many, some, (<|>))
 
 import Data.SrcLoc (SrcLoc)
-import Data.SrcLoc qualified as SrcLoc
 import Data.Text (Text)
 
 import Prelude hiding (Read)
@@ -28,8 +30,10 @@ import Text.Parsel qualified as Parsel
 
 import Opal.Common.Symbol qualified as Symbol
 
-import Opal.Expand.Syntax (StxCtx (StxCtx), Syntax (StxAtom, StxList, StxBool))
+import Opal.Expand.Syntax (StxCtx (StxCtx), Syntax (StxAtom, StxList, StxBool, StxPair))
 import Opal.Expand.Syntax.MultiScopeSet qualified as MultiScopeSet
+import Opal.Expand.Syntax.MultiScopeSet (Phase(Phase), MultiScopeSet)
+import Opal.Expand.Syntax.ScopeSet (ScopeId(ScopeId))
 
 -- TODO ------------------------------------------------------------------------
 
@@ -44,29 +48,35 @@ runRead src = Parsel.parse src rSyntax
 -- | TODO
 --
 -- @since 1.0.0
+makeStxCtx :: SrcLoc -> StxCtx 
+makeStxCtx loc = 
+  let coreScopes :: MultiScopeSet 
+      coreScopes = MultiScopeSet.singleton (Phase 0) [ScopeId 0]
+   in StxCtx (Just loc) coreScopes 
+
+-- | TODO
+--
+-- @since 1.0.0
 makeStxBool :: SrcLoc -> Bool -> Syntax
-makeStxBool srcloc bool =
-  let context :: StxCtx
-      context = StxCtx srcloc 2 MultiScopeSet.empty
-   in StxBool context bool 
+makeStxBool loc = StxBool (makeStxCtx loc) 
+
+-- | TODO
+--
+-- @since 1.0.0
+makeStxPair :: SrcLoc -> Syntax -> Syntax -> Syntax
+makeStxPair loc = StxPair (makeStxCtx loc) 
 
 -- | TODO
 --
 -- @since 1.0.0
 makeStxAtom :: SrcLoc -> String -> Syntax
-makeStxAtom srcloc symbol =
-  let context :: StxCtx
-      context = StxCtx srcloc (length symbol) MultiScopeSet.empty
-   in StxAtom context (Symbol.pack symbol)
+makeStxAtom loc symbol = StxAtom (makeStxCtx loc) (Symbol.pack symbol)
 
 -- | TODO
 --
 -- @since 1.0.0
-makeStxList :: SrcLoc -> SrcLoc -> [Syntax] -> Syntax
-makeStxList begin end stxs =
-  let context :: StxCtx
-      context = StxCtx begin (SrcLoc.diff begin end) MultiScopeSet.empty
-   in StxList context stxs
+makeStxList :: SrcLoc -> [Syntax] -> Syntax
+makeStxList loc = StxList (makeStxCtx loc) 
 
 -- TODO ------------------------------------------------------------------------
 
@@ -76,35 +86,59 @@ makeStxList begin end stxs =
 rTopLevelSyntax :: Grammar Syntax
 rTopLevelSyntax = do 
   Parsel.whitespaces 
-  loc0 <- Parsel.location
+  loc <- Parsel.location
   stxs <- many rSyntax 
-  loc1 <- Parsel.location
-  pure (makeStxList loc0 loc1 stxs)
+  pure (makeStxList loc stxs)
 
 -- | TODO
 --
 -- @since 1.0.0
 rSyntax :: Grammar Syntax
-rSyntax = do 
-  Parsel.whitespaces
-  stx <- Parsel.choice [rStxPrim, rStxAtom, rStxList]
-  Parsel.whitespaces 
-  pure stx
+rSyntax = Parsel.whitespaces *> Parsel.choice @[] [rStxPrim, rStxAtom, rStxList]
 
 -- | TODO
 --
 -- @since 1.0.0
 rStxPrim :: Grammar Syntax
-rStxPrim =
-  Parsel.choice
+rStxPrim = 
+  Parsel.whitespaces *> Parsel.choice
+    @[]
     [ rStxPrimFalse
     , rStxPrimTrue
     , rStxPrimQuote
     , rStxPrimUnquote
     , rStxPrimSyntax
-    , rPrimQuasiSyntax
+    , rStxPrimQuasiSyntax
     , rStxPrimUnsyntax
+    , rStxPrimPair
     ]
+
+-- | TODO
+--
+-- @since 1.0.0
+rStxAtom :: Grammar Syntax
+rStxAtom = do
+  srcloc <- Parsel.location
+  symbol <- some (foldr @[] ((<|>) . Parsel.char) Parsel.alphaNum "-_/!+-<>#=*?")
+  pure (makeStxAtom srcloc symbol)
+
+-- | TODO
+--
+-- @since 1.0.0
+rStxList :: Grammar Syntax
+rStxList = do
+  loc <- Parsel.location
+  many Parsel.whitespace
+  stxs <- rList $ rSurround (many Parsel.whitespace) $ many rSyntax
+  pure (makeStxList loc stxs)
+  where
+    rList :: Grammar a -> Grammar a
+    rList tok = Parsel.parentheses tok <|> Parsel.brackets tok
+
+    rSurround :: Grammar x -> Grammar a -> Grammar a
+    rSurround a x = a *> x <* a
+
+--------------------------------------------------------------------------------
 
 -- | TODO
 --
@@ -121,123 +155,72 @@ rStxPrimFalse = do
 rStxPrimTrue :: Grammar Syntax
 rStxPrimTrue = do
   srcloc <- Parsel.location
-  Parsel.string "#t" <|> Parsel.string "#t"
+  Parsel.string "#t" <|> Parsel.string "#T"
   pure (makeStxBool srcloc True)
 
 -- | TODO
 --
 -- @since 1.0.0
-rStxPrimQuote :: Grammar Syntax
-rStxPrimQuote = do
-  begin <- Parsel.location
-  quote <- rPrimQuote
-  syntax <- rSyntax
-  end <- Parsel.location
-  pure (makeStxList begin end [quote, syntax])
-
--- | TODO
---
--- @since 1.0.0
-rStxPrimUnquote :: Grammar Syntax
-rStxPrimUnquote = do
-  begin <- Parsel.location
-  unquote <- rPrimUnquote
-  syntax <- rSyntax
-  end <- Parsel.location
-  pure (makeStxList begin end [unquote, syntax])
-
--- | TODO
---
--- @since 1.0.0
-rStxPrimSyntax :: Grammar Syntax
-rStxPrimSyntax = do
-  begin <- Parsel.location
-  syntax <- rPrimSyntax
-  sexps <- rSyntax
-  end <- Parsel.location
-  pure (makeStxList begin end [syntax, sexps])
-
--- | TODO
---
--- @since 1.0.0
-rStxPrimUnsyntax :: Grammar Syntax
-rStxPrimUnsyntax = do
-  begin <- Parsel.location
-  unsyntax <- rPrimUnsyntax
-  sexps <- rSyntax
-  end <- Parsel.location
-  pure (makeStxList begin end [unsyntax, sexps])
-
--- | TODO
---
--- @since 1.0.0
-rStxAtom :: Grammar Syntax
-rStxAtom = do
-  srcloc <- Parsel.location
-  symbol <- some (foldr @[] ((<|>) . Parsel.char) Parsel.alphaNum "-_/!+-<>#=*")
-  many Parsel.whitespace
-  pure (makeStxAtom srcloc symbol)
-
--- | TODO
---
--- @since 1.0.0
-rStxList :: Grammar Syntax
-rStxList = do
-  begin <- Parsel.location
-  stxs <- rList $ rSurround (many Parsel.whitespace) $ many rSyntax
-  end <- Parsel.location
-  many Parsel.whitespace
-  pure (makeStxList begin end stxs)
-  where
-    rList :: Grammar a -> Grammar a
-    rList tok = Parsel.parentheses tok <|> Parsel.brackets tok
-
-    rSurround :: Grammar x -> Grammar a -> Grammar a
-    rSurround a x = a *> x <* a
+rStxPrimPair :: Grammar Syntax 
+rStxPrimPair = do 
+  Parsel.char '('
+  Parsel.whitespaces
+  lhs <- rSyntax
+  loc <- Parsel.location
+  Parsel.string " . "
+  rhs <- rSyntax
+  Parsel.whitespaces
+  Parsel.char ')'
+  pure (makeStxPair loc lhs rhs) 
 
 --------------------------------------------------------------------------------
 
 -- | TODO
 --
 -- @since 1.0.0
-rPrimQuote :: Grammar Syntax
-rPrimQuote = do
-  srcloc <- Parsel.location
+rStxPrimQuote :: Grammar Syntax
+rStxPrimQuote = do
+  loc <- Parsel.location
   Parsel.char '\''
-  pure (makeStxAtom srcloc "quote")
+  stx <- rSyntax
+  pure (makeStxList loc [makeStxAtom loc "quote", stx])
 
 -- | TODO
 --
 -- @since 1.0.0
-rPrimUnquote :: Grammar Syntax
-rPrimUnquote = do
-  srcloc <- Parsel.location
-  Parsel.char ','
-  pure (makeStxAtom srcloc "unquote")
-
--- | TODO
---
--- @since 1.0.0
-rPrimSyntax :: Grammar Syntax
-rPrimSyntax = do
-  srcloc <- Parsel.location
-  Parsel.string "#'"
-  pure (makeStxAtom srcloc "syntax")
-
--- | TODO
---
--- @since 1.0.0
-rPrimQuasiSyntax :: Grammar Syntax
-rPrimQuasiSyntax = do
-  srcloc <- Parsel.location
-  Parsel.string "#`"
-  pure (makeStxAtom srcloc "quasisyntax")
-
--- | TODO
---
--- @since 1.0.0
-rPrimUnsyntax :: Grammar Syntax
-rPrimUnsyntax = do
-  srcloc <- Parsel.location
+rStxPrimUnquote :: Grammar Syntax
+rStxPrimUnquote = do
+  loc <- Parsel.location
   Parsel.string "#,"
-  pure (makeStxAtom srcloc "unsyntax")
+  stx <- rSyntax
+  pure (makeStxList loc [makeStxAtom loc "unquote", stx])
+
+-- | TODO
+--
+-- @since 1.0.0
+rStxPrimSyntax :: Grammar Syntax
+rStxPrimSyntax = do
+  loc <- Parsel.location
+  Parsel.string "#'"
+  stx <- rSyntax
+  pure (makeStxList loc [makeStxAtom loc "syntax", stx])
+
+-- | TODO
+--
+-- @since 1.0.0
+rStxPrimQuasiSyntax :: Grammar Syntax
+rStxPrimQuasiSyntax = do
+  loc <- Parsel.location
+  Parsel.string "#`"
+  stx <- rSyntax
+  pure (makeStxList loc [makeStxAtom loc "quasisyntax", stx])
+
+-- | TODO
+--
+-- @since 1.0.0
+rStxPrimUnsyntax :: Grammar Syntax
+rStxPrimUnsyntax = do
+  loc <- Parsel.location
+  Parsel.string "#,"
+  stx <- rSyntax
+  pure (makeStxList loc [makeStxAtom loc "unsyntax", stx])

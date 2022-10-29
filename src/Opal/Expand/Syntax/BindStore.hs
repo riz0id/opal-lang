@@ -81,7 +81,7 @@ coreSyntax =
       forms =
         [ Core.Form.Lambda
         , Core.Form.LetSyntax
-        , Core.Form.Syntax
+        , Core.Form.QuoteSyntax
         , Core.Form.DefineValue
         ]
    in foldr (insertCoreBind . Core.Form.toName) empty forms

@@ -120,6 +120,7 @@ library
     Opal.Expand.Syntax.BindStore
     Opal.Expand.Syntax.MultiScopeSet
     Opal.Expand.Syntax.ScopeSet
+    Opal.Expand.Syntax.TH
     Opal.Expand.Transform
     Opal.Parse
     Opal.Parse.TH
@@ -156,12 +157,16 @@ test-suite test
 
   build-depends:
     , hedgehog
+    , hspec
     , opal
     , tasty
+    , tasty-hspec 
     , tasty-hedgehog 
 
   other-modules: 
     Test.Compat
     Test.Core
-    Test.Expand
-    Test.Expand.Evaluate
+    -- Test.Opal.Expand
+    -- Test.Opal.Expand.Evaluate
+    Test.Opal
+    Test.Opal.Read

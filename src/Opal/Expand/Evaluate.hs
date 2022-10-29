@@ -27,6 +27,7 @@ import Opal.Expand.Core (indexTransformers)
 import Opal.Expand.Monad (Expand, extends)
 import Opal.Expand.Resolve.Class ( resolveName )
 import Opal.Expand.Syntax (Syntax (..), StxIdt (..))
+import Opal.Expand.Syntax qualified as Syntax
 import Opal.Expand.Transform (Transform (..))
 import Opal.Expand.Transform qualified as Transform
 
@@ -40,6 +41,7 @@ exprEval :: Expr -> Expand Datum
 exprEval (SExpVal val) = pure val
 exprEval (SExpVar name) = varEval name
 exprEval (SExpApp func args) = appEval func args
+exprEval (SExpIf c e0 e1) = ifEval c e0 e1
 exprEval (SExpLet vars args) = letEval vars args
 {-# INLINE exprEval #-}
 
@@ -61,11 +63,23 @@ appEval (SExpVal val) args =
 appEval (SExpApp fun args') args = do
   val <- appEval fun args'
   appDatumEval val args
+appEval (SExpIf c e0 e1) args = do
+  val <- ifEval c e0 e1
+  appDatumEval val args
 appEval (SExpLet vars body) args = do
   val <- letEval vars body
   appDatumEval val args
 {-# INLINE appEval #-}
 
+-- | TODO
+--
+-- @since 1.0.0
+ifEval :: Expr -> Expr -> Expr -> Expand Datum
+ifEval c e0 e1 = do 
+  val <- exprEval c
+  if val == Datum.Bool False 
+    then exprEval e1 
+    else exprEval e0
 
 -- | TODO
 --
@@ -100,12 +114,17 @@ appDatumEval val args = do
 -- @since 1.0.0
 appCorePrimEval :: CorePrim -> [Expr] -> Expand Datum
 appCorePrimEval Core.Prim.Apply = primApplyEval
+appCorePrimEval Core.Prim.Cons = primConsEval
 appCorePrimEval Core.Prim.GenSym = primGenSymEval
 appCorePrimEval Core.Prim.List = primListEval
+appCorePrimEval Core.Prim.Map = primMapEval
 appCorePrimEval Core.Prim.Head = primHeadEval
 appCorePrimEval Core.Prim.Tail = primTailEval
+appCorePrimEval Core.Prim.IsProcedure = primIsProcedureEval
 appCorePrimEval Core.Prim.IsList = primIsListEval
+appCorePrimEval Core.Prim.IsPair = primIsPairEval
 appCorePrimEval Core.Prim.IsSyntax = primDatumIsSyntaxEval
+appCorePrimEval Core.Prim.IsSymbol = primDatumIsSymbolEval
 appCorePrimEval Core.Prim.DatumToSyntax = primDatumToSyntaxEval
 appCorePrimEval Core.Prim.SyntaxToDatum = primSyntaxToDatumEval
 appCorePrimEval Core.Prim.SyntaxLocalValue = primSyntaxLocalValueEval
@@ -123,6 +142,19 @@ primApplyEval [arg1, arg2] = do
     _ -> pure (error ("evaluation error: contract violation: expected arg 2# of 'apply' to be list: " ++ show val))
 primApplyEval args = do
   pure (error ("evaluation error: unexpected number of arguments to apply: " ++ show args))
+
+-- | TODO
+--
+-- @since 1.0.0
+primConsEval :: [Expr] -> Expand Datum 
+primConsEval [arg1, arg2] = do 
+  val1 <- exprEval arg1
+  val2 <- exprEval arg2
+  case val2 of 
+    Datum.List rest -> pure (Datum.List (val1 : rest))
+    _ -> pure (Datum.Pair val1 val2)
+primConsEval args = do
+  pure (error ("evaluation error: unexpected number of arguments to cons: " ++ show args))
 
 -- | TODO
 --
@@ -173,12 +205,65 @@ primTailEval _ = do
 -- | TODO
 --
 -- @since 1.0.0
+primIsProcedureEval :: [Expr] -> Expand Datum
+primIsProcedureEval [arg] = do
+  elts <- exprEval arg
+  pure (Datum.Bool (Datum.isProcDatum elts))
+primIsProcedureEval args = do
+  pure (error ("evaluation error: unexpected arguments to procedure?: " ++ show args))
+
+-- | TODO
+--
+-- @since 1.0.0
+primDatumIsSymbolEval :: [Expr] -> Expand Datum
+primDatumIsSymbolEval [arg] = do
+  elts <- exprEval arg
+  pure (Datum.Bool (Datum.isSymbolDatum elts))
+primDatumIsSymbolEval args = do
+  pure (error ("evaluation error: unexpected arguments to symbol?: " ++ show args))
+
+-- | TODO
+--
+-- @since 1.0.0
+primIsPairEval :: [Expr] -> Expand Datum
+primIsPairEval [arg] = do
+  elts <- exprEval arg
+  pure (Datum.Bool (Datum.isPairDatum elts))
+primIsPairEval args = do
+  pure (error ("evaluation error: unexpected arguments to pair?: " ++ show args))
+
+-- | TODO
+--
+-- @since 1.0.0
 primIsListEval :: [Expr] -> Expand Datum
 primIsListEval [arg] = do
   elts <- exprEval arg
   pure (Datum.Bool (Datum.isListDatum elts))
 primIsListEval args = do
   pure (error ("evaluation error: unexpected arguments to list?: " ++ show args))
+
+-- | TODO
+--
+-- @since 1.0.0
+primMapEval :: [Expr] -> Expand Datum
+primMapEval [arg1, arg2] = do
+  arg1' <- exprEval arg1
+  case arg1' of
+    func@Datum.Proc {} -> do
+      arg2' <- exprEval arg2 
+      case arg2' of 
+        Datum.List xs -> do 
+          xs' <- traverse (appDatumEval func . pure . SExpVal) xs
+          pure (Datum.List xs')
+        Datum.Pair x y -> do 
+          x' <- appDatumEval func [SExpVal x] 
+          y' <- appDatumEval func [SExpVal y] 
+          pure (Datum.Pair x' y')
+        _ -> do 
+          appDatumEval func [SExpVal arg2']
+    _ -> pure (error ("evaluation error: contract violation: expected arg 1# of 'map' to be a procedure: " ++ show arg1'))
+primMapEval args = do
+  pure (error ("evaluation error: unexpected arguments to map?: " ++ show args))
 
 -- | TODO
 --
@@ -194,7 +279,17 @@ primDatumIsSyntaxEval args = do
 --
 -- @since 1.0.0
 primDatumToSyntaxEval :: [Expr] -> Expand Datum
-primDatumToSyntaxEval = undefined
+primDatumToSyntaxEval [arg1, arg2] = do
+  val1 <- exprEval arg1
+  case val1 of 
+    Datum.Stx stx -> do 
+      val2 <- exprEval arg2
+      let stx' = Datum.datumToSyntax stx val2 stx.context.location
+      pure (Datum.Stx stx')
+    _ -> 
+      pure (error ("evaluation error: contract violation datum->syntax: " ++ show val1))
+primDatumToSyntaxEval args = do
+  pure (error ("evaluation error: unexpected arguments to datum->syntax: " ++ show args))
 
 -- | TODO
 --

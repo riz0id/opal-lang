@@ -45,6 +45,7 @@ import Text.Emit qualified as Emit
 
 import Opal.Common.Name (Name)
 import Opal.Common.Name qualified as Name
+import Language.Haskell.TH.Syntax (Lift)
 
 --------------------------------------------------------------------------------
 
@@ -52,7 +53,7 @@ import Opal.Common.Name qualified as Name
 --
 -- @since 1.0.0
 newtype Symbol = Symbol Name
-  deriving (Eq, Ord, IsString)
+  deriving (Eq, Ord, IsString, Lift)
 
 -- | @since 1.0.0
 instance Data Symbol where

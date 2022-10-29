@@ -1,6 +1,8 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-incomplete-patterns #-}
 
 module Opal.Expand (
@@ -24,19 +26,20 @@ module Opal.Expand (
   -- * TODO
 ) where
 
-import Control.Lens (set, over)
+import Control.Lens (over, set, view)
 
-import Control.Monad (unless)
 import Control.Monad.Except (throwError)
 import Control.Monad.Reader (asks, local)
 import Control.Monad.State (modify', state, gets)
+
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 
 import Prelude hiding (exp)
 
 --------------------------------------------------------------------------------
 
 import Opal.Common.Name (Name)
-import Opal.Common.Symbol (Symbol)
 
 import Opal.Core (Expr, SExp (..))
 import Opal.Core.Datum (Datum)
@@ -55,23 +58,28 @@ import Opal.Expand.Core (
   parse,
   pruneSyntax,
   scopeStxIdt,
-  scopeSyntax,
+  scopeSyntax, resolveIdt,
  )
 import Opal.Expand.Evaluate (exprEval)
 import Opal.Expand.Monad
 import Opal.Expand.Namespace (makeEmptyNamespace)
 import Opal.Expand.Resolve (resolveName)
-import Opal.Expand.Syntax (StxCtx, StxIdt (StxIdt), Syntax (..))
+import Opal.Expand.Syntax (
+  StxCtx,
+  StxIdt (StxIdt),
+  Syntax (StxAtom, StxBool, StxList, StxPair),
+ )
 import Opal.Expand.Syntax qualified as Syntax
 import Opal.Expand.Syntax.ScopeSet (ScopeId (ScopeId))
 import Opal.Expand.Syntax.ScopeSet qualified as ScopeSet
 import Opal.Expand.Transform (Transform)
-import qualified Opal.Expand.Transform as Transform
+import Opal.Expand.Transform qualified as Transform
 
 import Opal.Parse (ParseError (..))
 import Opal.Parse qualified as Parse
-import qualified Debug.Trace as Debug
-import Opal.Expand.Syntax.MultiScopeSet (Phase(Phase))
+
+import Debug.Trace qualified as Debug
+import Control.Monad.Error (catchError)
 
 --------------------------------------------------------------------------------
 
@@ -85,7 +93,7 @@ runSyntaxEval stx =
    in runExpand ctx stw do
         let coreScope = ScopeId 0
         introCoreBinds
-        stx' <- syntaxExpand =<< scopeSyntax coreScope stx
+        stx' <- moduleExpand =<< scopeSyntax coreScope stx
         sexp <- parse (Parse.pSyntax stx')
         exprEval sexp
 
@@ -100,7 +108,7 @@ runSyntaxExpand stx =
         let coreScope = ScopeId 0
         introCoreBinds
         stx' <- scopeSyntax coreScope stx
-        syntaxExpand stx'
+        moduleExpand stx'
 
 -- | TODO
 --
@@ -169,6 +177,10 @@ syntaxExpand stx = do
       coreScope = ScopeId 0
    in case Syntax.scope ph coreScope stx of
         StxBool ctx bool -> pure (StxBool ctx bool)
+        StxPair ctx stx0 stx1 -> do
+          stx0' <- syntaxExpand stx0
+          stx1' <- syntaxExpand stx1
+          pure (StxPair ctx stx0' stx1')
         StxAtom ctx atom -> stxIdtExpand (StxIdt ctx atom)
         StxList ctx stxs -> stxListExpand ctx stxs
 
@@ -183,9 +195,7 @@ stxIdtExpand idt = do
     Transform.Var idt' ->
       pure idt'.syntax
     Transform.Dtm (Datum.Bool bool) -> do
-      let symbol :: Symbol
-          symbol = if bool then "#t" else "#f"
-       in pure (StxAtom idt.context symbol)
+      pure (StxBool idt.context bool)
     Transform.Dtm datum -> do
       let macro = idt.syntax
       applyTransformer (SExpVal datum) macro
@@ -206,32 +216,14 @@ idtApplicationExpand ctx idt stxs = do
   name <- resolveName idt
   form <- indexTransformers name
   case form of
-    Transform.Core Core.Form.DefineValue -> do
-      let define'value = StxAtom idt.context "define-value"
-      (var, rhs) <- parse (Parse.pStxDefineValue stxs)
-      (sc, rhs') <- defineValueBodyExpand var rhs
-      scopeSyntax sc (StxList ctx [define'value, var.syntax, rhs'])
     Transform.Core Core.Form.Quote -> do
       let quote = StxAtom idt.context "quote"
       pure (StxList ctx (quote : stxs))
-    Transform.Core Core.Form.Syntax
+    Transform.Core Core.Form.QuoteSyntax
       | [stx] <- stxs -> do
-          phase <- asks ctx'phase 
-
-          if phase /= Phase 0
-            then pure (error ("illegal use of syntax at phase " ++ show phase)) 
-            else do
-              let syntax = StxAtom idt.context "syntax"
-              stx' <- pruneSyntax stx
-              pure (StxList ctx [syntax, stx'])
-      | otherwise -> do
-          throwError (ExnParseError (ExnParseSyntax stxs))
-    Transform.Core Core.Form.QuasiSyntax
-      | [stx] <- stxs -> do
-          let syntax = StxAtom idt.context "quasisyntax"
-          stx1 <- pruneSyntax stx
-          stx2 <- quasiSyntaxExpand stx1
-          pure (StxList ctx [syntax, stx2])
+          let quote'syntax = StxAtom idt.context "quote-syntax"
+          stx' <- pruneSyntax stx
+          pure (StxList ctx [quote'syntax, stx'])
       | otherwise -> do
           throwError (ExnParseError (ExnParseSyntax stxs))
     Transform.Core Core.Form.Lambda
@@ -242,6 +234,15 @@ idtApplicationExpand ctx idt stxs = do
           scopeSyntax sc (StxList ctx (lambda : stx : body'))
       | otherwise -> do
           throwError (ExnParseError (ExnParseLambda stxs))
+    Transform.Core Core.Form.If
+      | [stx1, stx2, stx3] <- stxs -> do
+          let if' = StxAtom idt.context "if"
+          stx1' <- syntaxExpand stx1
+          stx2' <- syntaxExpand stx2
+          stx3' <- syntaxExpand stx3
+          pure (StxList ctx [if', stx1', stx2', stx3'])
+      | otherwise -> do
+          throwError (ExnParseError (ExnParseIf idt.syntax stxs))
     Transform.Core Core.Form.Let
       | stx : body <- stxs -> do
           let let' = StxAtom idt.context "let"
@@ -254,6 +255,10 @@ idtApplicationExpand ctx idt stxs = do
     Transform.Core Core.Form.LetSyntax -> do
       (binds, body) <- parse (Parse.pStxLetSyntax stxs)
       letSyntaxExpand binds body
+    Transform.Core Core.Form.DefineValue -> do
+      pure (StxList ctx (idt.syntax : stxs))
+    Transform.Core coreform -> do
+      pure (error ("idtApplicationExpand: unhandled core form case: " ++ show coreform))
     Transform.Dtm (Datum.Prim prim) -> do
       let func = StxIdt idt.context (Core.Prim.toSymbol prim)
       applicationExpand ctx func stxs
@@ -265,48 +270,83 @@ idtApplicationExpand ctx idt stxs = do
     Transform.Var func -> do
       applicationExpand ctx func stxs
 
-quasiSyntaxExpand :: Syntax -> Expand Syntax 
-quasiSyntaxExpand (StxAtom ctx atom) = do 
-  pure (StxAtom ctx atom)
-quasiSyntaxExpand (StxList ctx stxs@(StxAtom ctx' atom : stxs')) = do 
+moduleExpand :: Syntax -> Expand Syntax
+moduleExpand (StxList ctx (StxAtom ctx' atom : stxs)) = do
   name <- resolveName (StxIdt ctx' atom)
   bind <- indexTransformers name
-  case bind of 
-    Transform.Core Core.Form.Unsyntax
-      | [stx] <- stxs' -> unsyntaxExpand stx
-      | otherwise -> error ("unsyntax parse error")
-    _ -> do 
-      stxs'' <- traverse quasiSyntaxExpand stxs
-      pure (StxList ctx stxs'')
-quasiSyntaxExpand (StxList ctx stxs) = do 
-  stxs' <- traverse quasiSyntaxExpand stxs
+  case bind of
+    Transform.Core Core.Form.Module -> do
+      let module' = StxAtom ctx' "module"
+      stxs' <- moduleBodyExpand stxs
+      pure (StxList ctx (module' : stxs'))
+    _ -> do
+      let body = StxAtom ctx' atom : stxs
+      body' <- moduleBodyExpand body
+      pure (StxList ctx body')
+moduleExpand (StxList ctx stxs) = do
+  let !_ = Debug.trace (show stxs) ()
+  stxs' <- moduleBodyExpand stxs
   pure (StxList ctx stxs')
+moduleExpand stx = syntaxExpand stx
 
-unsyntaxExpand :: Syntax -> Expand Syntax 
-unsyntaxExpand stx = do 
-  prev'prunes <- state \env ->
-    (state'intro'scopes env, env {state'intro'scopes = ScopeSet.empty})
+moduleBodyExpand :: [Syntax] -> Expand [Syntax]
+moduleBodyExpand stxs = do
+  (stxs', forms) <- modulePartialBodyExpand stxs
+  local (set ctxTransformers forms) do
+    (final, _) <- moduleDefnsBodyExpand stxs'
+    pure final
 
-  stw <- gets state'bindstore 
-  let !_ = Debug.trace (show stw) ()
+modulePartialBodyExpand :: [Syntax] -> Expand ([Syntax], Map Name Transform)
+modulePartialBodyExpand [] = do
+  forms <- asks (view ctxTransformers)
+  pure ([], forms)
+modulePartialBodyExpand (StxList ctx (StxAtom ctx' atom : stxs) : rest) = do
+  let idt = StxIdt ctx' atom
+
+  bind <- catchError (fmap Just (resolveIdt idt)) \_ -> pure Nothing
   
-  final <- do
-    stx' <- syntaxExpand stx
-    expr <- parse (Parse.pSyntax stx')
-    exprEval expr
+  case bind of 
+    Just (Transform.Core Core.Form.DefineSyntaxValue) -> do
+      (name, defn) <- nextPhase do
+        (name, stx') <- defineSyntaxValueExpand stxs
+        sexp <- parse (Parse.pSyntax stx')
+        defn <- exprEval sexp
+        pure (name, defn)
+      let add'transformer = Map.insert name (Transform.Dtm defn)
+      local (over ctxTransformers add'transformer) do
+        modulePartialBodyExpand rest
+    _ -> do
+      (rest', forms) <- modulePartialBodyExpand rest
+      pure (StxList ctx (StxAtom ctx' atom : stxs) : rest', forms)
+modulePartialBodyExpand (stx : stxs) = do
+  (stxs', forms) <- modulePartialBodyExpand stxs
+  pure (stx : stxs', forms)
 
-  modify' (set stwIntroScopes prev'prunes)
-
-  case final of 
-    Datum.Stx stx'' -> pure stx''
-    Datum.Atom atom -> 
-      pure (Syntax.makeSyntax stx atom)
-    Datum.Bool bool -> do 
-      let symbol = if bool then "#t" else "#f"
-      pure (Syntax.makeSyntax stx symbol)
-    Datum.Prim prim -> do 
-      let symbol = Core.Prim.toSymbol prim 
-      pure (Syntax.makeSyntax stx symbol)
+moduleDefnsBodyExpand :: [Syntax] -> Expand ([Syntax], Map Name Transform)
+moduleDefnsBodyExpand [] = do
+  forms <- asks (view ctxTransformers)
+  pure ([], forms)
+moduleDefnsBodyExpand (StxList ctx (StxAtom ctx' atom : stxs) : rest) = do
+  resolveIdt (StxIdt ctx' atom) >>= \case
+    Transform.Core Core.Form.DefineValue -> do
+      (name, idt, defn) <- defineValueBodyExpand stxs
+      let add'transformer = Map.insert name (Transform.Var idt)
+      local (over ctxTransformers add'transformer) do
+        let decl = StxList ctx [StxAtom ctx' atom, idt.syntax, defn]
+        (rest', forms) <- moduleDefnsBodyExpand rest
+        pure (decl : rest', forms)
+    Transform.Var idt -> do 
+      stxs' <- traverse syntaxExpand stxs
+      (rest', forms) <- moduleDefnsBodyExpand rest
+      pure (StxList ctx (idt.syntax : stxs') : rest', forms)
+    _ -> do
+      stx' <- syntaxExpand (StxList ctx (StxAtom ctx' atom : stxs))
+      (rest', forms) <- moduleDefnsBodyExpand rest
+      pure (stx' : rest', forms)
+moduleDefnsBodyExpand (stx : stxs) = do
+  stx' <- syntaxExpand stx
+  (stxs', forms) <- moduleDefnsBodyExpand stxs
+  pure (stx' : stxs', forms)
 
 applicationExpand :: StxCtx -> StxIdt -> [Syntax] -> Expand Syntax
 applicationExpand ctx func stxs = do
@@ -315,23 +355,28 @@ applicationExpand ctx func stxs = do
 
 --------------------------------------------------------------------------------
 
-defineValueBodyExpand :: StxIdt -> Syntax -> Expand (ScopeId, Syntax)
-defineValueBodyExpand idt rhs = do
-  scope <- newIntroScopeId
+defineSyntaxValueExpand :: [Syntax] -> Expand (Name, Syntax)
+defineSyntaxValueExpand [StxAtom ctx atom, stx] = do
+  let idt = StxIdt ctx atom
+  stx' <- syntaxExpand stx
+  name <- introBinding idt
+  pure (name, stx')
+defineSyntaxValueExpand stxs = do
+  pure (error ("defineSyntaxValueExpand: " ++ show stxs))
 
-  idt' <- scopeStxIdt scope idt
-  name <- introBinding idt'
-  rhs' <- scopeSyntax scope rhs
-
-  local (extend name (Transform.Var idt')) do
-    final'rhs <- syntaxExpand rhs'
-    pure (scope, final'rhs)
+defineValueBodyExpand :: [Syntax] -> Expand (Name, StxIdt, Syntax)
+defineValueBodyExpand [StxAtom ctx atom, stx] = do
+  let idt = StxIdt ctx atom
+  name <- introBinding idt
+  stx' <- syntaxExpand stx
+  pure (name, idt, stx')
+defineValueBodyExpand stxs = do
+  pure (error (show stxs))
 
 --------------------------------------------------------------------------------
 
 lambdaBodyExpand :: [StxIdt] -> [Syntax] -> Expand (ScopeId, [Syntax])
 lambdaBodyExpand args body = do
-
   scope <- newIntroScopeId
 
   args' <- traverse (scopeStxIdt scope) args
@@ -379,7 +424,7 @@ letSyntaxExpand vars body = do
   forms <- traverse makeDatumTransform names
   body' <- scopeSyntax scope body
 
-  local (extends forms) do 
+  local (extends forms) do
     final <- syntaxExpand body'
     modify' (over stwIntroScopes (ScopeSet.insert scope))
     pure final
@@ -423,25 +468,3 @@ applyTransformer func stx = do
       syntaxExpand stx'e
     other -> do
       throwError (ExnRecievedNotSyntax other)
-
---------------------------------------------------------------------------------
-
--- bodyExpand :: [Syntax] -> ScopeId -> Expand [Syntax]
--- bodyExpand bodys sc = do 
-
---   outside'sc <- newScopeId 
---   inside'sc <- newScopeId 
-
---   init'bodys <- for bodys \body -> 
---     scopeSyntax sc body 
---       >>= scopeSyntax outside'sc
---       >>= scopeSyntax inside'sc
-
---   body'ctx <- asks \ctx -> 
---     let scopes' = ScopeSet.union [outside'sc, inside'sc] ctx.ctx'scopes
-
---      in ctx
---           { ctx'scopes = scopes'
---           }
-
---   undefined
