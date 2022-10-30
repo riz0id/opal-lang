@@ -265,6 +265,8 @@ pDeclaration stx = do
 --
 -- @since 1.0.0
 pSyntax :: Syntax -> Parse Expr
+pSyntax StxVoid {} =
+  pure (SExpVal Datum.Void)
 pSyntax (StxBool _ bool) = 
   pure (SExpVal (Datum.Bool bool)) 
 pSyntax (StxPair _ stx0 stx1) = do 
@@ -302,9 +304,11 @@ pStxAtom ctx atom = fmap SExpVar (resolve ctx atom)
 --
 -- @since 1.0.0
 pStxList :: Syntax -> [Syntax] -> Parse Expr
-pStxList (StxBool ctx atom) stxs = 
+pStxList StxVoid {} stxs = 
+  pure (error ("attempt to call #<void> as a procedure"))
+pStxList StxBool {} stxs = 
   pure (error ("attempt to call boolean as a procedure"))
-pStxList (StxPair ctx s s') stxs = 
+pStxList StxPair {} stxs = 
   pure (error ("attempt to call pair as a procedure"))
 pStxList (StxAtom ctx atom) stxs = do
   resolve ctx atom >>= \case
@@ -366,6 +370,8 @@ pStxFormals stx = do
 --
 -- @since 1.0.0
 pStxFormalIdts :: Syntax -> Parse [StxIdt]
+pStxFormalIdts (StxVoid _) = 
+  pure (error ("using #<void> as formal"))
 pStxFormalIdts (StxBool _ _) = 
   pure (error ("using boolean as formal"))
 pStxFormalIdts (StxPair _ _ _) = 
@@ -374,6 +380,7 @@ pStxFormalIdts (StxAtom ctx atom) =
   pure [StxIdt ctx atom]
 pStxFormalIdts (StxList ctx vars) = do
   for vars \case
+    StxVoid {} -> pure (error ("using #<void> as formal"))
     StxBool _ _ -> pure (error ("using boolean as formal"))
     StxPair _ _ _ -> pure (error ("using pair as formal"))
     StxAtom ctx' atom -> pure (StxIdt ctx' atom)

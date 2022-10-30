@@ -43,7 +43,7 @@ import Opal.Core.Datum (Datum)
 import Opal.Core.Datum qualified as Datum
 
 import Opal.Core.Prim qualified as Core.Prim
-import Opal.Expand.Syntax (StxCtx, Syntax (StxAtom, StxList, StxBool, StxPair))
+import Opal.Expand.Syntax (StxCtx, Syntax (StxAtom, StxList, StxBool, StxPair, StxVoid))
 import Opal.Expand.Syntax qualified as Syntax
 import qualified Data.Map.Strict as Map
 
@@ -151,6 +151,7 @@ docDatum (Datum.Proc vars body) =
     ]
 docDatum (Datum.List vals) =
   "'" <> Emit.parens (Emit.hsep (map docDatum vals))
+docDatum Datum.Void = "#<void>"
 
 -- TODO ------------------------------------------------------------------------
 
@@ -158,6 +159,7 @@ docDatum (Datum.List vals) =
 --
 -- @since 1.0.0
 docSyntax :: Syntax -> Doc a
+docSyntax (StxVoid ctx) = docStxVoid ctx 
 docSyntax (StxBool ctx atom) = docStxBool ctx atom
 docSyntax (StxPair ctx stx0 stx1) = docStxPair ctx stx0 stx1
 docSyntax (StxAtom ctx atom) = docStxAtom ctx atom
@@ -186,6 +188,12 @@ docStxPair ctx stx0 stx1 =
 -- | TODO
 --
 -- @since 1.0.0
+docStxVoid :: StxCtx -> Doc a
+docStxVoid ctx = "#<syntax:" <> docStxCtx ctx <> ": #<void>>"
+
+-- | TODO
+--
+-- @since 1.0.0
 docStxBool :: StxCtx -> Bool -> Doc a
 docStxBool ctx bool 
   | bool = "#<syntax:" <> docStxCtx ctx <> ": #t>"
@@ -208,6 +216,7 @@ docStxList ctx stxs =
       <> ">"
   where
     docStxElem :: Syntax -> Doc a
+    docStxElem (StxVoid ctx') = "#<syntax:" <> docStxCtx ctx' <> ": #<void>>" 
     docStxElem (StxBool _ bool) = if bool then "#t" else "#f"
     docStxElem (StxPair ctx' stx0 stx1) = docStxPair ctx' stx0 stx1
     docStxElem (StxAtom _ atom) = emit atom

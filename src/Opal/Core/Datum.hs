@@ -50,6 +50,7 @@ data Datum
   | Prim CorePrim
   | Proc [Name] (NonEmpty (SExp Datum))
   | List [Datum]
+  | Void 
   deriving (Data, Eq, Ord, Lift, Show)
 
 -- Construction ----------------------------------------------------------------
@@ -58,6 +59,7 @@ data Datum
 --
 -- @since 1.0.0
 syntaxToDatum :: Syntax -> Datum
+syntaxToDatum (Syntax.StxVoid _) = Void
 syntaxToDatum (Syntax.StxBool _ bool) = Bool bool
 syntaxToDatum (Syntax.StxPair _ s s') = Pair (syntaxToDatum s) (syntaxToDatum s')
 syntaxToDatum (Syntax.StxAtom _ name) = Atom name
@@ -92,6 +94,7 @@ datumToSyntax orig datum loc = case datum of
 --
 -- @since 1.0.0
 syntaxExpr :: Syntax -> Datum
+syntaxExpr (Syntax.StxVoid _) = Void
 syntaxExpr (Syntax.StxBool _ bool) = Bool bool
 syntaxExpr (Syntax.StxPair _ s s') = Pair (Stx s) (Stx s')
 syntaxExpr (Syntax.StxAtom _ atom) = Atom atom

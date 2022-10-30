@@ -1,20 +1,20 @@
 {-# LANGUAGE ApplicativeDo #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+
 {-# HLINT ignore "Use <$>" #-}
 
-module Opal.Read
-  ( -- * TODO
-    runRead,
+module Opal.Read (
+  -- * TODO
+  runRead,
 
-    -- * TODO
-    rTopLevelSyntax,
-    rStxPrimFalse,
-    rStxPrimTrue,
-  )
-where
+  -- * TODO
+  rTopLevelSyntax,
+  rStxPrimFalse,
+  rStxPrimTrue,
+) where
 
 import Control.Applicative (many, some, (<|>))
 
@@ -30,10 +30,13 @@ import Text.Parsel qualified as Parsel
 
 import Opal.Common.Symbol qualified as Symbol
 
-import Opal.Expand.Syntax (StxCtx (StxCtx), Syntax (StxAtom, StxList, StxBool, StxPair))
+import Opal.Expand.Syntax (
+  StxCtx (StxCtx),
+  Syntax (StxAtom, StxBool, StxList, StxPair, StxVoid),
+ )
+import Opal.Expand.Syntax.MultiScopeSet (MultiScopeSet, Phase (Phase))
 import Opal.Expand.Syntax.MultiScopeSet qualified as MultiScopeSet
-import Opal.Expand.Syntax.MultiScopeSet (Phase(Phase), MultiScopeSet)
-import Opal.Expand.Syntax.ScopeSet (ScopeId(ScopeId))
+import Opal.Expand.Syntax.ScopeSet (ScopeId (ScopeId))
 
 -- TODO ------------------------------------------------------------------------
 
@@ -48,23 +51,29 @@ runRead src = Parsel.parse src rSyntax
 -- | TODO
 --
 -- @since 1.0.0
-makeStxCtx :: SrcLoc -> StxCtx 
-makeStxCtx loc = 
-  let coreScopes :: MultiScopeSet 
+makeStxCtx :: SrcLoc -> StxCtx
+makeStxCtx loc =
+  let coreScopes :: MultiScopeSet
       coreScopes = MultiScopeSet.singleton (Phase 0) [ScopeId 0]
-   in StxCtx (Just loc) coreScopes 
+   in StxCtx (Just loc) coreScopes
+
+-- | TODO
+--
+-- @since 1.0.0
+makeStxVoid :: SrcLoc -> Syntax
+makeStxVoid loc = StxVoid (makeStxCtx loc)
 
 -- | TODO
 --
 -- @since 1.0.0
 makeStxBool :: SrcLoc -> Bool -> Syntax
-makeStxBool loc = StxBool (makeStxCtx loc) 
+makeStxBool loc = StxBool (makeStxCtx loc)
 
 -- | TODO
 --
 -- @since 1.0.0
 makeStxPair :: SrcLoc -> Syntax -> Syntax -> Syntax
-makeStxPair loc = StxPair (makeStxCtx loc) 
+makeStxPair loc = StxPair (makeStxCtx loc)
 
 -- | TODO
 --
@@ -76,7 +85,7 @@ makeStxAtom loc symbol = StxAtom (makeStxCtx loc) (Symbol.pack symbol)
 --
 -- @since 1.0.0
 makeStxList :: SrcLoc -> [Syntax] -> Syntax
-makeStxList loc = StxList (makeStxCtx loc) 
+makeStxList loc = StxList (makeStxCtx loc)
 
 -- TODO ------------------------------------------------------------------------
 
@@ -84,10 +93,10 @@ makeStxList loc = StxList (makeStxCtx loc)
 --
 -- @since 1.0.0
 rTopLevelSyntax :: Grammar Syntax
-rTopLevelSyntax = do 
-  Parsel.whitespaces 
+rTopLevelSyntax = do
+  Parsel.whitespaces
   loc <- Parsel.location
-  stxs <- many rSyntax 
+  stxs <- many rSyntax
   pure (makeStxList loc stxs)
 
 -- | TODO
@@ -100,18 +109,20 @@ rSyntax = Parsel.whitespaces *> Parsel.choice @[] [rStxPrim, rStxAtom, rStxList]
 --
 -- @since 1.0.0
 rStxPrim :: Grammar Syntax
-rStxPrim = 
-  Parsel.whitespaces *> Parsel.choice
-    @[]
-    [ rStxPrimFalse
-    , rStxPrimTrue
-    , rStxPrimQuote
-    , rStxPrimUnquote
-    , rStxPrimSyntax
-    , rStxPrimQuasiSyntax
-    , rStxPrimUnsyntax
-    , rStxPrimPair
-    ]
+rStxPrim =
+  Parsel.whitespaces
+    *> Parsel.choice
+      @[]
+      [ rStxPrimVoid
+      , rStxPrimFalse
+      , rStxPrimTrue
+      , rStxPrimQuote
+      , rStxPrimUnquote
+      , rStxPrimSyntax
+      , rStxPrimQuasiSyntax
+      , rStxPrimUnsyntax
+      , rStxPrimPair
+      ]
 
 -- | TODO
 --
@@ -143,6 +154,15 @@ rStxList = do
 -- | TODO
 --
 -- @since 1.0.0
+rStxPrimVoid :: Grammar Syntax
+rStxPrimVoid = do
+  srcloc <- Parsel.location
+  Parsel.string "#<void>"
+  pure (makeStxVoid srcloc)
+
+-- | TODO
+--
+-- @since 1.0.0
 rStxPrimFalse :: Grammar Syntax
 rStxPrimFalse = do
   srcloc <- Parsel.location
@@ -161,8 +181,8 @@ rStxPrimTrue = do
 -- | TODO
 --
 -- @since 1.0.0
-rStxPrimPair :: Grammar Syntax 
-rStxPrimPair = do 
+rStxPrimPair :: Grammar Syntax
+rStxPrimPair = do
   Parsel.char '('
   Parsel.whitespaces
   lhs <- rSyntax
@@ -171,7 +191,7 @@ rStxPrimPair = do
   rhs <- rSyntax
   Parsel.whitespaces
   Parsel.char ')'
-  pure (makeStxPair loc lhs rhs) 
+  pure (makeStxPair loc lhs rhs)
 
 --------------------------------------------------------------------------------
 
