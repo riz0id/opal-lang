@@ -38,6 +38,7 @@ data CorePrim
   | IsPair
   | IsSyntax 
   | IsSymbol
+  | SetBang
   | SyntaxToDatum
   | SyntaxLocalValue
   | SyntaxExpr
@@ -49,6 +50,7 @@ data CorePrim
 toName :: CorePrim -> Name
 toName Apply = "apply"
 toName Cons = "cons"
+toName DatumToSyntax = "datum->syntax"
 toName GenSym = "gensym"
 toName List = "list"
 toName Map = "map"
@@ -59,7 +61,7 @@ toName IsProcedure = "procedure?"
 toName IsSyntax = "syntax?"
 toName IsPair = "pair?"
 toName IsSymbol = "symbol?"
-toName DatumToSyntax = "datum->syntax"
+toName SetBang = "set!"
 toName SyntaxToDatum = "syntax->datum"
 toName SyntaxLocalValue = "syntax-local-value"
 toName SyntaxExpr = "syntax-e"

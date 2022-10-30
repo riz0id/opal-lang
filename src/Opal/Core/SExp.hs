@@ -8,6 +8,7 @@ module Opal.Core.SExp (
 
 import Data.Data (Data)
 import Data.Map.Internal (Map (..))
+import Data.List.NonEmpty (NonEmpty)
 
 import Language.Haskell.TH.Syntax (Lift)
 
@@ -26,6 +27,6 @@ data SExp a
   = SExpVal a
   | SExpVar {-# UNPACK #-} !Name
   | SExpApp (SExp a) [SExp a]
-  | SExpLet (Map Name (SExp a)) (SExp a)
+  | SExpLet (Map Name (SExp a)) (NonEmpty (SExp a))
   | SExpIf (SExp a) (SExp a) (SExp a)
   deriving (Data, Eq, Ord, Lift, Show)

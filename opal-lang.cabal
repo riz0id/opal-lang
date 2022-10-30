@@ -61,7 +61,7 @@ library
   hs-source-dirs: src
 
   default-extensions:
-    DataKinds DeriveDataTypeable DeriveLift GeneralizedNewtypeDeriving 
+    DeriveDataTypeable DataKinds DeriveLift GeneralizedNewtypeDeriving 
     PatternSynonyms ViewPatterns
 
   ghc-options:
@@ -110,7 +110,6 @@ library
     Opal.Expand.Core
     Opal.Expand.Evaluate
     Opal.Expand.Monad
-    Opal.Expand.Monad.ExpandContext
     Opal.Expand.Monad.ExpandStore
     Opal.Expand.Namespace
     Opal.Expand.Resolve
@@ -123,7 +122,9 @@ library
     Opal.Expand.Syntax.TH
     Opal.Expand.Transform
     Opal.Parse
-    Opal.Parse.TH
+    Opal.Parse.Monad
+    Opal.Parse.ParseContext
+    Opal.Parse.ParseError
     Opal.Print
     Opal.Read
 

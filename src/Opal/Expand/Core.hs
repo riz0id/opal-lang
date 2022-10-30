@@ -6,7 +6,6 @@ module Opal.Expand.Core (
   indexTransformers,
 
   -- * Phase Operations
-  withPhase,
   nextPhase,
 
   -- * Scope Introduction
@@ -35,10 +34,9 @@ module Opal.Expand.Core (
   introCorePrims,
 ) where
 
-import Control.Lens (over, set, (^.))
+import Control.Lens (over, (^.))
 
 import Control.Monad.Except (throwError)
-import Control.Monad.Reader (asks, local)
 import Control.Monad.State (gets, modify', state)
 
 import Data.Foldable (traverse_)
@@ -59,9 +57,9 @@ import Opal.Core.Form qualified as Core.Form
 
 import Opal.Expand.Monad (
   Expand,
-  ExpandContext (..),
+  ExpandStore (..),
   ExpandError (..),
-  state'intro'scopes, ctxPhase, stwBindstore, stwNextScope, stwIntroScopes,
+  stwBindstore, stwNextScope, stwIntroScopes, ExpandStore (state'environment), stwPhase,
  )
 import Opal.Expand.Syntax (StxIdt, Syntax)
 import Opal.Expand.Syntax qualified as Syntax
@@ -69,7 +67,6 @@ import Opal.Expand.Syntax.BindStore qualified as BindStore
 import Opal.Expand.Syntax.Binding (Binding (Binding))
 import Opal.Expand.Syntax.Binding qualified as Binding
 import Opal.Expand.Syntax.ScopeSet (ScopeId, ScopeSet)
-import Opal.Expand.Syntax.MultiScopeSet (Phase)
 import Opal.Expand.Syntax.MultiScopeSet qualified as MultiScopeSet
 import Opal.Expand.Transform (Transform)
 import qualified Opal.Expand.Syntax.ScopeSet as ScopeSet
@@ -85,8 +82,8 @@ import Opal.Expand.Resolve (resolveName)
 -- @since 1.0.0
 parse :: Parse a -> Expand a
 parse px = do
-  ph <- asks ctx'phase
-  case Parse.runParse ph px of
+  phase <- gets state'phase
+  case Parse.runParse phase px of
     Left exn -> throwError (ExnParseError exn)
     Right sexp -> pure sexp
 {-# INLINE parse #-}
@@ -102,7 +99,7 @@ resolveIdt idt = indexTransformers =<< resolveName idt
 -- @since 1.0.0
 indexTransformers :: Name -> Expand Transform
 indexTransformers name = do
-  env <- asks ctx'transformers
+  env <- gets state'environment 
   case Map.lookup name env of
     Nothing -> throwError (ExnUnboundTransformer name env)
     Just rx -> pure rx
@@ -112,14 +109,12 @@ indexTransformers name = do
 -- | TODO
 --
 -- @since 1.0.0
-withPhase :: Phase -> Expand a -> Expand a 
-withPhase ph = local (set ctxPhase ph)
-
--- | TODO
---
--- @since 1.0.0
 nextPhase :: Expand a -> Expand a 
-nextPhase = local (over ctxPhase succ)
+nextPhase expand = do 
+  modify' (over stwPhase succ)
+  ret <- expand
+  modify' (over stwPhase succ)
+  pure ret
 
 -- Scoping Introduction --------------------------------------------------------
 
@@ -154,20 +149,20 @@ newUsageScopeId = do
 --
 -- @since 1.0.0
 scopeSyntax :: ScopeId -> Syntax -> Expand Syntax
-scopeSyntax sc stx = asks \ctx -> Syntax.scope (ctx'phase ctx) sc stx
+scopeSyntax sc stx = gets \ctx -> Syntax.scope (state'phase ctx) sc stx
 
 -- | TODO
 --
 -- @since 1.0.0
 scopeStxIdt :: ScopeId -> StxIdt -> Expand StxIdt
-scopeStxIdt sc idt = asks \ctx -> Syntax.scopeIdt (ctx'phase ctx) sc idt
+scopeStxIdt sc idt = gets \ctx -> Syntax.scopeIdt (state'phase ctx) sc idt
 
 -- | TODO
 --
 -- @since 1.0.0
 pruneSyntax :: Syntax -> Expand Syntax
 pruneSyntax stx = do
-  ph <- asks ctx'phase
+  ph <- gets state'phase
   sc <- gets state'intro'scopes
   pure (Syntax.prune ph sc stx)
 
@@ -175,7 +170,7 @@ pruneSyntax stx = do
 --
 -- @since 1.0.0
 flipsSyntax :: ScopeId -> Syntax -> Expand Syntax
-flipsSyntax sc stx = asks \ctx -> Syntax.flips (ctx'phase ctx) sc stx
+flipsSyntax sc stx = gets \ctx -> Syntax.flips (state'phase ctx) sc stx
 
 -- Binding Introduction --------------------------------------------------------
 
@@ -194,7 +189,7 @@ introBinding idt = do
 -- @since 1.0.0
 makeBinding :: StxIdt -> Expand Binding
 makeBinding idt = do
-  ph <- asks ctx'phase
+  ph <- gets state'phase
   nm <- makeBinder idt.symbol
   let scopes :: ScopeSet 
       scopes = MultiScopeSet.index ph idt.context.multiscope

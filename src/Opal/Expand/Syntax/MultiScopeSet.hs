@@ -7,6 +7,7 @@
 module Opal.Expand.Syntax.MultiScopeSet
   ( -- * PhaseId
     Phase (Phase),
+    phaseZero,
 
     -- * MultiScopeSet
     MultiScopeSet (MultiScopeSet),
@@ -68,6 +69,13 @@ newtype Phase :: Type where
 instance Show Phase where 
   show (Phase n) = "#phase:" ++ show n
   {-# INLINE show #-}
+
+-- | TODO
+--
+-- @since 1.0.0
+phaseZero :: Phase 
+phaseZero = Phase 0
+{-# INLINE CONLIKE phaseZero #-}
 
 -- MultiScopeSet ---------------------------------------------------------------
 

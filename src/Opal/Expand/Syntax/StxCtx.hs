@@ -3,6 +3,9 @@ module Opal.Expand.Syntax.StxCtx
   ( -- * StxCtx
     StxCtx (..),
     
+    -- ** Construction
+    empty,
+
     -- ** Lenses 
     stxCtxSrcLoc,
     stxCtxMultiscope,
@@ -40,11 +43,12 @@ data StxCtx = StxCtx
 
 -- Construction ----------------------------------------------------------------
 
--- | TODO
+-- | Constructs an empty syntax context. The resulting context has no scopes 
+-- or lexical information.
 --
 -- @since 1.0.0
--- makeStxCtx :: Phase -> ScopeSet -> StxCtx -> StxCtx
--- makeStxCtx ph scopes ctx = ctx {multiscope = MultiScopeSet.singleton ph scopes}
+empty :: StxCtx 
+empty = StxCtx Nothing MultiScopeSet.empty
 
 -- Lenses ----------------------------------------------------------------------
 

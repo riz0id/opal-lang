@@ -31,6 +31,8 @@ import Opal.Parse qualified as Parse
 import Opal.Run.Command (Command (..))
 import Opal.Run.Parse qualified as Parse
 import Opal.Core.Datum (Datum)
+import qualified Opal.Parse.ParseError as Parse
+import qualified System.Exit as System
 
 --------------------------------------------------------------------------------
 
@@ -81,7 +83,10 @@ parseOpalIO :: Text -> IO Expr
 parseOpalIO source = do
   syntax <- readOpalIO source
   case Parse.evalParseExpr syntax of
-    Left exn -> throwIO (ErrorCall $ show exn)
+    Left exn -> do 
+      let msg = Parse.pprParseError exn
+      Text.IO.hPutStrLn IO.stdout msg
+      System.exitFailure
     Right decls -> pure decls
 
 readOpalIO :: Text -> IO Syntax

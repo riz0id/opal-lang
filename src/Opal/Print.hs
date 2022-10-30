@@ -92,9 +92,8 @@ docExpr (SExpLet vars body) =
   (Emit.parens . Emit.hsep)
     ["let"
     , (Emit.nest 2 . Emit.vsep)
-        [ Emit.parens (Emit.vsep (Map.foldMapWithKey (\var val -> [Emit.bracks (emit var <+> docExpr val)]) vars))
-        , docExpr body
-        ]
+        (Emit.parens (Emit.vsep (Map.foldMapWithKey (\var val -> [Emit.bracks (emit var <+> docExpr val)]) vars)) 
+          : foldr ((:) . docExpr) [] body)
     ]
 
 -- | TODO

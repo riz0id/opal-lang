@@ -3,14 +3,12 @@
 module Opal.Expand.Monad (
   Expand (Expand, unExpand),
   ExpandError (..),
-  module Opal.Expand.Monad.ExpandContext,
   module Opal.Expand.Monad.ExpandStore,
 ) where
 
 --------------------------------------------------------------------------------
 
 import Control.Monad.Except (MonadError, catchError, throwError)
-import Control.Monad.Reader (MonadReader, ask, local)
 import Control.Monad.State (MonadState, get, put, state)
 
 import Data.Map.Strict (Map)
@@ -25,7 +23,6 @@ import Opal.Core.Datum (Datum)
 
 import Opal.Parse (ParseError)
 
-import Opal.Expand.Monad.ExpandContext
 import Opal.Expand.Monad.ExpandStore
 import Opal.Expand.Resolve (MonadResolve, ResolveError, resolveBind)
 import Opal.Expand.Resolve qualified as Resolve
@@ -39,7 +36,6 @@ import Opal.Expand.Transform (Transform)
 -- @since 1.0.0
 newtype Expand a = Expand
   { unExpand ::
-      ExpandContext ->
       ExpandStore ->
       (# ExpandStore, (# ExpandError | a #) #)
   }
@@ -47,20 +43,20 @@ newtype Expand a = Expand
 -- | @since 1.0.0
 instance Functor Expand where
   fmap f (Expand k) =
-    Expand \ctx st0 -> case k ctx st0 of
+    Expand \st0 -> case k st0 of
       (# st1, (# e | #) #) -> (# st1, (# e | #) #)
       (# st1, (# | x #) #) -> (# st1, (# | f x #) #)
   {-# INLINE fmap #-}
 
 -- | @since 1.0.0
 instance Applicative Expand where
-  pure x = Expand \_ st -> (# st, (# | x #) #)
+  pure x = Expand \st -> (# st, (# | x #) #)
   {-# INLINE pure #-}
 
   Expand f <*> Expand g =
-    Expand \ctx st0 -> case f ctx st0 of
+    Expand \st0 -> case f st0 of
       (# st1, (# e | #) #) -> (# st1, (# e | #) #)
-      (# st1, (# | k #) #) -> case g ctx st1 of
+      (# st1, (# | k #) #) -> case g st1 of
         (# st2, (# e | #) #) -> (# st2, (# e | #) #)
         (# st2, (# | x #) #) -> (# st2, (# | k x #) #)
   {-# INLINE (<*>) #-}
@@ -68,47 +64,39 @@ instance Applicative Expand where
 -- | @since 1.0.0
 instance Monad Expand where
   Expand k >>= f =
-    Expand \ctx st0 -> case k ctx st0 of
+    Expand \st0 -> case k st0 of
       (# st1, (# e | #) #) -> (# st1, (# e | #) #)
-      (# st1, (# | x #) #) -> unExpand (f x) ctx st1
+      (# st1, (# | x #) #) -> unExpand (f x) st1
   {-# INLINE (>>=) #-}
 
 -- | @since 1.0.0
 instance MonadError ExpandError Expand where
-  throwError e = Expand \_ st -> (# st, (# e | #) #)
+  throwError e = Expand \st -> (# st, (# e | #) #)
   {-# INLINE throwError #-}
 
   catchError (Expand k) f =
-    Expand \ctx st0 -> case k ctx st0 of
-      (# st1, (# e | #) #) -> unExpand (f e) ctx st1
+    Expand \st0 -> case k st0 of
+      (# st1, (# e | #) #) -> unExpand (f e) st1
       (# st1, (# | x #) #) -> (# st1, (# | x #) #)
   {-# INLINE catchError #-}
 
 -- | @since 1.0.0
-instance MonadReader ExpandContext Expand where
-  ask = Expand \ctx st -> (# st, (# | ctx #) #)
-  {-# INLINE ask #-}
-
-  local f (Expand k) = Expand \ctx st -> k (f ctx) st
-  {-# INLINE local #-}
-
--- | @since 1.0.0
 instance MonadState ExpandStore Expand where
-  get = Expand \_ st -> (# st, (# | st #) #)
+  get = Expand \st -> (# st, (# | st #) #)
   {-# INLINE get #-}
 
-  put st = Expand \_ _ -> (# st, (# | () #) #)
+  put st = Expand \_ -> (# st, (# | () #) #)
   {-# INLINE put #-}
 
   state k =
-    Expand \_ st0 -> case k st0 of
+    Expand \st0 -> case k st0 of
       (x, st1) -> (# st1, (# | x #) #)
   {-# INLINE state #-}
 
 -- | @since 1.0.0
 instance MonadGenSym Expand where
   newGenSymWith symbol = do
-    Expand \_ st0 ->
+    Expand \st0 ->
       let gen = GenSym.GenSym symbol st0.state'next'genId
           st1 = st0 {state'next'genId = succ st0.state'next'genId}
        in (# st1, (# | gen #) #)
@@ -117,8 +105,8 @@ instance MonadGenSym Expand where
 -- | @since 1.0.0
 instance MonadResolve Expand where
   resolveBind idt =
-    Expand \ctx env ->
-      let ph = ctx'phase ctx
+    Expand \env ->
+      let ph = state'phase env
           bs = state'bindstore env
        in case Resolve.runResolveId ph idt bs of
             Left exn -> (# env, (# ExnResolveError exn | #) #)

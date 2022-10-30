@@ -4,12 +4,15 @@ module Opal.Expand.Evaluate (
   exprEval,
 ) where
 
+import Control.Lens (over, view, set)
+
+import Control.Monad.State.Strict (modify', gets)
 import Control.Monad (unless)
-import Control.Monad.Reader (local)
 
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.List.NonEmpty (NonEmpty ((:|)))
 
 --------------------------------------------------------------------------------
 
@@ -24,12 +27,13 @@ import Opal.Core.Prim (CorePrim)
 import Opal.Core.Prim qualified as Core.Prim
 
 import Opal.Expand.Core (indexTransformers)
-import Opal.Expand.Monad (Expand, extends)
+import Opal.Expand.Monad (Expand, stwEnvironment)
 import Opal.Expand.Resolve.Class ( resolveName )
 import Opal.Expand.Syntax (Syntax (..), StxIdt (..))
 import Opal.Expand.Syntax qualified as Syntax
 import Opal.Expand.Transform (Transform (..))
 import Opal.Expand.Transform qualified as Transform
+import Data.Foldable (foldr')
 
 --------------------------------------------------------------------------------
 
@@ -42,7 +46,7 @@ exprEval (SExpVal val) = pure val
 exprEval (SExpVar name) = varEval name
 exprEval (SExpApp func args) = appEval func args
 exprEval (SExpIf c e0 e1) = ifEval c e0 e1
-exprEval (SExpLet vars args) = letEval vars args
+exprEval (SExpLet vars body) = letEval vars body
 {-# INLINE exprEval #-}
 
 -- | TODO
@@ -84,12 +88,16 @@ ifEval c e0 e1 = do
 -- | TODO
 --
 -- @since 1.0.0
-letEval :: Map Name Expr -> Expr -> Expand Datum
-letEval vars body = do
+letEval :: Map Name Expr -> NonEmpty Expr -> Expand Datum
+letEval vars (b :| bs) = do
   vars' <- traverse exprEval vars
   let varBinds :: [(Name, Transform)]
       varBinds = Map.foldrWithKey (\var val rest -> (var, Transform.Dtm val) : rest) [] vars'
-   in local (extends varBinds) (exprEval body)
+  old <- gets (view stwEnvironment )
+  modify' (over stwEnvironment \env -> foldr (uncurry Map.insert) env varBinds)
+  ret <- foldr' ((>>) . exprEval) (exprEval b) bs 
+  modify' (set stwEnvironment old)
+  pure ret 
 
 -- | TODO
 --
@@ -100,8 +108,11 @@ appDatumEval fun@(Datum.Proc vars body) args = do
   vals <- traverse exprEval args
   let argBinds :: [(Name, Transform)]
       argBinds = zipWith (\var val -> (var, Transform.Dtm val)) vars vals
-   in local (extends argBinds) do
-        foldr ((>>) . exprEval) (exprEval (NonEmpty.head body)) body
+  old <- gets (view stwEnvironment )
+  modify' (over stwEnvironment \env -> foldr (uncurry Map.insert) env argBinds)
+  ret <- foldr ((>>) . exprEval) (exprEval (NonEmpty.head body)) body
+  modify' (set stwEnvironment old)
+  pure ret
 appDatumEval (Datum.Prim prim) args = do
   appCorePrimEval prim args
 appDatumEval val args = do
@@ -115,20 +126,21 @@ appDatumEval val args = do
 appCorePrimEval :: CorePrim -> [Expr] -> Expand Datum
 appCorePrimEval Core.Prim.Apply = primApplyEval
 appCorePrimEval Core.Prim.Cons = primConsEval
+appCorePrimEval Core.Prim.DatumToSyntax = primDatumToSyntaxEval
 appCorePrimEval Core.Prim.GenSym = primGenSymEval
-appCorePrimEval Core.Prim.List = primListEval
-appCorePrimEval Core.Prim.Map = primMapEval
 appCorePrimEval Core.Prim.Head = primHeadEval
-appCorePrimEval Core.Prim.Tail = primTailEval
+appCorePrimEval Core.Prim.List = primListEval
 appCorePrimEval Core.Prim.IsProcedure = primIsProcedureEval
 appCorePrimEval Core.Prim.IsList = primIsListEval
 appCorePrimEval Core.Prim.IsPair = primIsPairEval
 appCorePrimEval Core.Prim.IsSyntax = primDatumIsSyntaxEval
 appCorePrimEval Core.Prim.IsSymbol = primDatumIsSymbolEval
-appCorePrimEval Core.Prim.DatumToSyntax = primDatumToSyntaxEval
+appCorePrimEval Core.Prim.Map = primMapEval
+appCorePrimEval Core.Prim.SetBang = primSetBangEval
 appCorePrimEval Core.Prim.SyntaxToDatum = primSyntaxToDatumEval
 appCorePrimEval Core.Prim.SyntaxLocalValue = primSyntaxLocalValueEval
 appCorePrimEval Core.Prim.SyntaxExpr = primSyntaxExprEval
+appCorePrimEval Core.Prim.Tail = primTailEval
 
 -- | TODO
 --
@@ -319,6 +331,26 @@ primSyntaxLocalValueEval [arg] = do
     other -> pure (error ("evaluation error: (syntax-local-value " ++ show arg ++ "):  did not yield syntax: " ++ show other))
 primSyntaxLocalValueEval args = do
   pure (error ("evaluation error: unexpected arguments to syntax-local-value: " ++ show args))
+
+-- | TODO
+--
+-- @since 1.0.0
+primSetBangEval :: [Expr] -> Expand Datum
+primSetBangEval [arg1, arg2] = do
+  case arg1 of 
+    SExpVar var -> do 
+      val <- exprEval arg2
+      env <- gets (view stwEnvironment)
+      if Map.member var env 
+        then do 
+          modify' (over stwEnvironment (Map.insert var (Transform.Dtm val)))
+          pure Datum.Void
+        else do 
+          pure (error ("set!: cannot set variable before it is initialized: " ++ show var))
+    _ -> 
+      pure (error ("evaluation error: contract violation set!: arg #1: " ++ show arg1))
+primSetBangEval args = do
+  pure (error ("evaluation error: unexpected arguments to set!: " ++ show args))
 
 -- | TODO
 --
