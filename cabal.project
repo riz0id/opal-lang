@@ -1,0 +1,21 @@
+
+with-compiler: ghc-9.6.2
+
+jobs: $ncpus
+tests: True
+
+packages: packages/*/*.cabal
+
+package *
+  optimization: 2
+
+  ghc-options:
+    -fwrite-ide-info
+
+  haddock-html: true
+  haddock-hoogle: true
+  haddock-hyperlink-source: true
+  haddock-quickjump: true
+  haddock-internal: true
+
+  tests: true

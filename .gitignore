@@ -1,0 +1,13 @@
+**/.DS_Store
+GNUmakefile
+cabal-dev
+dist
+dist-install
+ghc.mk
+.cabal-sandbox
+cabal.sandbox.config
+.hsenv
+*~
+dist-newstyle/
+cabal.project.local*
+.vscode
