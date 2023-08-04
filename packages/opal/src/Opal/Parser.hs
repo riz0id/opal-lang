@@ -57,7 +57,7 @@ runParseSyntax c = runParse c . parseSyntax
 -- @since 1.0.0
 parseSyntax :: Syntax -> Parse SExp
 parseSyntax stx@[syntax| () |] = do
-  throwEmptyAppParseError (stx ^. stxInfo)
+  throwEmptyAppParseError (stx ^. syntaxInfo)
 parseSyntax stx@[syntax| (?fun:id ?stxs ...) |] = do
   fun' <- parseIdentifier fun
   if| fun' `eqSymbol` "lambda" -> case [syntax| (?stxs ...) |] of

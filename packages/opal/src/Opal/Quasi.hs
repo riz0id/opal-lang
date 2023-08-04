@@ -24,11 +24,14 @@ module Opal.Quasi
     -- ** Template Haskell
   , qexpToSyntaxE
   , qexpToSyntaxesE
+  , qexpToSyntaxP
     -- * QuasiList
   , QuasiList (..)
     -- ** Template Haskell
   , qlistToSyntaxE
   , qlistToSyntaxesE
+  , qlistToSyntaxP
+  , qlistToSyntaxesP
     -- * QuasiVar
   , QuasiVar (..)
     -- ** Basic Operations
@@ -43,12 +46,15 @@ module Opal.Quasi
   , qvarToSyntaxE
   , qvarToDatumsE
   , qvarToSyntaxesE
+  , qvarToSyntaxP
+  , qvarToSyntaxesP
     -- * QuasiVal
   , QuasiVal (..)
     -- ** Template Haskell
   , qvalToSyntaxE
   , qvalToSyntaxesE
   , qvalToSyntaxP
+  , qvalToSyntaxesP
     -- * EllipsisClass
   , QuasiClass (..)
     -- ** Template Haskell
@@ -60,23 +66,26 @@ module Opal.Quasi
   )
 where
 
-import Control.Lens (Lens', lens, (^.))
+import Control.Lens (Lens', lens, (^.), preview)
 
 import Data.Default (Default (..))
 import Data.Foldable (Foldable(..))
+import Data.List.NonEmpty (NonEmpty)
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Primitive.Array (Array)
+import Data.Primitive.Array qualified as Array
 import Data.String (IsString(..))
 import Data.Traversable (for)
 
-import Language.Haskell.TH (Body (..), Q, Exp (..), Match (..), Name, Pat (..), Type (..))
+import Language.Haskell.TH (Q, Exp (..), Name, Pat (..))
 import Language.Haskell.TH qualified as TH
-import Language.Haskell.TH.Syntax (Lift (..))
+import Language.Haskell.TH.Syntax (Lift (..), Type (..))
 
 import Opal.Common.Symbol (Symbol, symbolToString)
-import Opal.Syntax (Datum (..), Syntax (..), SyntaxInfo, identifierToSyntax)
-import Opal.Writer qualified as Doc
-import Opal.Writer.Class (Display(..))
 import Opal.Common.TH (Pattern(..))
+import Opal.Syntax
+import Opal.Writer.Doc qualified as Doc (string)
+import Opal.Writer.Class (Display(..))
 
 --------------------------------------------------------------------------------
 
@@ -125,9 +134,25 @@ qexpToSyntaxE (QExp list) = qlistToSyntaxE list
 --
 -- @since 1.0.0
 qexpToSyntaxesE :: QExp -> Q Exp
-qexpToSyntaxesE (QVal val) = qvalToSyntaxesE val
-qexpToSyntaxesE (QVar var) = qvarToSyntaxesE var
-qexpToSyntaxesE (QExp exs) = qlistToSyntaxesE exs
+qexpToSyntaxesE (QVal val)  = qvalToSyntaxesE val
+qexpToSyntaxesE (QVar var)  = qvarToSyntaxesE var
+qexpToSyntaxesE (QExp list) = qlistToSyntaxesE list
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+qexpToSyntaxP :: QExp -> Q Pat
+qexpToSyntaxP (QVal val)  = qvalToSyntaxP val
+qexpToSyntaxP (QVar var)  = qvarToSyntaxP var
+qexpToSyntaxP (QExp list) = qlistToSyntaxP list
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+qexpToSyntaxesP :: QExp -> Q Pat
+qexpToSyntaxesP (QVal val)  = qvalToSyntaxesP val
+qexpToSyntaxesP (QVar var)  = qvarToSyntaxesP var
+qexpToSyntaxesP (QExp list) = qlistToSyntaxesP list
 
 -- QuasiList -------------------------------------------------------------------
 
@@ -151,35 +176,64 @@ instance Show QuasiList where
 qlistToSyntaxE :: QuasiList -> Q Exp
 qlistToSyntaxE list = do
   infoE <- lift (def :: SyntaxInfo)
-  stxsE <- qlistToSyntaxesE list
-
-  let valsE :: Exp
-      valsE = VarE 'map `AppE` ConE 'DatumStx `AppE` stxsE
-
-  let listE :: Exp
-      listE = ConE 'DatumList `AppE` valsE
-
-  pure (ConE 'Syntax `AppE` listE `AppE` infoE)
+  if null (getQuasiList list)
+    then pure (ConE 'SyntaxList `AppE` ListE [] `AppE` infoE)
+    else do
+      stxsE <- qlistToSyntaxesE list
+      pure (ConE 'SyntaxList `AppE` stxsE `AppE` infoE)
 
 -- | TODO: docs
 --
 -- @since 1.0.0
 qlistToSyntaxesE :: QuasiList -> Q Exp
-qlistToSyntaxesE (QuasiList list) = do
-  listsE <- for list \ex -> case ex of
-    QVal val   -> qvalToSyntaxesE val
-    QVar var   -> qvarToSyntaxesE var
-    QExp list' -> do
-      stxE <- qlistToSyntaxE list'
-      pure (ListE [stxE])
+qlistToSyntaxesE (QuasiList list)
+  | null list = pure (ListE [])
+  | otherwise = do
+    listsE <- for list \ex -> case ex of
+      QVal val   -> qvalToSyntaxesE val
+      QVar var   -> qvarToSyntaxesE var
+      QExp list' -> do
+        stxE <- qlistToSyntaxE list'
+        pure (ListE [stxE])
 
-  let listConcatE :: Exp -> Exp -> Exp
-      listConcatE e1 e2 = UInfixE e1 (VarE '(++)) e2
+    let listConcatE :: Exp -> Exp -> Exp
+        listConcatE e1 e2 = UInfixE e1 (VarE '(++)) e2
 
-  let listMappendE :: Array Exp -> Exp
-      listMappendE = foldr listConcatE (ListE [])
+    let listMappendE :: Array Exp -> Exp
+        listMappendE = foldr listConcatE (ListE [])
 
-  pure (listMappendE listsE)
+    pure (listMappendE listsE)
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+qlistToSyntaxP :: QuasiList -> Q Pat
+qlistToSyntaxP list = do
+  listP <- qlistToSyntaxesP list
+  pure (ConP 'SyntaxList [] [listP, WildP])
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+qlistToSyntaxesP :: QuasiList -> Q Pat
+qlistToSyntaxesP (QuasiList list) = case unsnoc list of
+  Nothing -> pure (ListP [])
+  Just (inits, final) -> do
+    initsP <- traverse qexpToSyntaxP inits
+    finalP <- qexpToSyntaxesP final
+
+    let listConsP :: Pat -> Pat -> Pat
+        listConsP p1 p2 = InfixP p1 '(:) p2
+
+    pure (foldr listConsP finalP initsP)
+  where
+    unsnoc :: Array a -> Maybe (Array a, a)
+    unsnoc xs = case length xs of
+      0   -> Nothing
+      len ->
+        let final = Array.indexArray xs (len - 1)
+            inits = Array.cloneArray xs 0 (len - 1)
+         in Just (inits, final)
 
 -- QuasiVar --------------------------------------------------------------------
 
@@ -208,13 +262,8 @@ instance Display QuasiVar where
 -- | @since 1.0.0
 instance Show QuasiVar where
   show (QuasiVar s k e) =
-    let kind = case k of
-          QuasiClassStx -> ""
-          _             -> show k
-
-        cls  = case e of
-          EllipsisNone -> ""
-          _            -> show e
+    let kind = case k of { QuasiClassStx -> ""; _ -> show k }
+        cls  = case e of { EllipsisNone -> ""; _ -> show e }
      in '?' : symbolToString s ++ kind ++ cls
 
 -- QuasiVar - Basic Operations -------------------------------------------------
@@ -304,7 +353,47 @@ qvarToSyntaxesE var = [e| $transformerE $converterE $varE |]
 --
 -- @since 1.0.0
 qvarToSyntaxP :: QuasiVar -> Q Pat
-qvarToSyntaxP var = undefined
+qvarToSyntaxP var = case var ^. qvarEllipsis of
+  EllipsisNone -> case var ^. qvarKind of
+    QuasiClassId  -> do
+      let varP  = VarP (quasiVarToName var)
+      let viewE = VarE 'preview `AppE` VarE 'syntaxId
+      pure (ViewP viewE (ConP 'Just [] [varP]))
+    QuasiClassStx -> pure (VarP (quasiVarToName var))
+    _             -> undefined
+  EllipsisMany -> do
+    varP <- qvarToSyntaxesP var
+    pure (ConP 'SyntaxList [] [varP, WildP])
+  EllipsisSome -> do
+    varP <- qvarToSyntaxesP var
+    pure (ConP 'SyntaxList [] [varP, WildP])
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+qvarToSyntaxesP :: QuasiVar -> Q Pat
+qvarToSyntaxesP var = do
+  let varP = VarP (quasiVarToName var)
+  case var ^. qvarEllipsis of
+    EllipsisNone -> case var ^. qvarKind of
+      QuasiClassStx -> pure (ListP [varP])
+      cls           -> pure (ListP [ViewP (toSyntaxViewerE cls) varP])
+    EllipsisMany -> case var ^. qvarKind of
+      QuasiClassStx -> pure varP
+      cls           -> pure (ViewP (VarE 'traverse `AppE` toSyntaxViewerE cls) (ConP 'Just [] [varP]))
+    EllipsisSome -> case var ^. qvarKind of
+      QuasiClassStx -> do
+        let viewE = VarE 'NonEmpty.nonEmpty
+        pure (ViewP viewE (ConP 'Just [] [varP]))
+      cls           -> do
+        name <- TH.newName "x"
+        let viewE =
+              LamE [VarP name]
+                (UInfixE
+                  (VarE 'NonEmpty.nonEmpty `AppE` VarE name)
+                  (VarE '(>>=))
+                  (VarE 'traverse `AppE` toSyntaxViewerE cls))
+        pure (ViewP viewE (ConP 'Just [] [varP]))
 
 -- QuasiVal --------------------------------------------------------------------
 
@@ -313,11 +402,11 @@ qvarToSyntaxP var = undefined
 -- @since 1.0.0
 data QuasiVal
   = QuasiValB !Bool
-    -- ^ TODO: docs
+    -- ^ A literal boolean quasi-value.
   | QuasiValC {-# UNPACK #-} !Char
-    -- ^ TODO: docs
+    -- ^ A literal character quasi-value.
   | QuasiValS {-# UNPACK #-} !Symbol
-    -- ^ TODO: docs
+    -- ^ A literal symbol quasi-value.
   deriving (Eq, Ord)
 
 -- | @since 1.0.0
@@ -334,49 +423,38 @@ instance Show QuasiVal where
 qvalToSyntaxE :: QuasiVal -> Q Exp
 qvalToSyntaxE val = do
   infoE <- lift (def :: SyntaxInfo)
-
-  valE <- case val of
+  case val of
     QuasiValB x -> do
-      boolE <- lift x
-      pure (ConE 'DatumB `AppE` boolE)
-    QuasiValC c -> do
-      charE <- lift c
-      pure (ConE 'DatumC `AppE` charE)
-    QuasiValS s -> do
-      symbolE <- lift s
-      pure (ConE 'DatumS `AppE` symbolE)
-
-  pure (ConE 'Syntax `AppE` valE `AppE` infoE)
+      valE <- lift x
+      pure (ConE 'SyntaxB `AppE` valE `AppE` infoE)
+    QuasiValC x -> do
+      valE <- lift x
+      pure (ConE 'SyntaxC `AppE` valE `AppE` infoE)
+    QuasiValS x -> do
+      valE <- lift x
+      pure (ConE 'SyntaxS `AppE` valE `AppE` infoE)
 
 -- | TODO: docs
 --
 -- @since 1.0.0
 qvalToSyntaxesE :: QuasiVal -> Q Exp
-qvalToSyntaxesE val = do
-  stxE <- qvalToSyntaxE val
-  pure (ListE [stxE])
+qvalToSyntaxesE val = [e| [$(qvalToSyntaxE val)] |]
 
 -- | TODO: docs
 --
 -- @since 1.0.0
 qvalToSyntaxP :: QuasiVal -> Q Pat
-qvalToSyntaxP val =
-  let valP :: Q Pat
-      valP = case val of
-        QuasiValB x -> do
-          viewE <- [e| preview datumBool |]
-          boolP <- liftPat x
-          pure (ViewP viewE (ConP 'Just [] [boolP]))
-        QuasiValC c -> do
-          viewE <- [e| preview datumChar |]
-          charP <- liftPat c
-          pure (ViewP viewE (ConP 'Just [] [charP]))
-        QuasiValS s -> do
-          viewE <- [e| preview datumSymbol |]
-          symbolP <- liftPat s
-          pure (ViewP viewE (ConP 'Just [] [symbolP]))
+qvalToSyntaxP (QuasiValB x) = [p| SyntaxB $(liftPat x) _ |]
+qvalToSyntaxP (QuasiValC x) = [p| SyntaxC $(liftPat x) _ |]
+qvalToSyntaxP (QuasiValS x) = [p| SyntaxS $(liftPat x) _ |]
 
-   in [p| Syntax $valP _ |]
+-- | TODO: docs
+--
+-- @since 1.0.0
+qvalToSyntaxesP :: QuasiVal -> Q Pat
+qvalToSyntaxesP val = do
+  valP <- qvalToSyntaxP val
+  pure (ListP [valP])
 
 -- QuasiClass ------------------------------------------------------------------
 
@@ -441,12 +519,23 @@ instance Show QuasiClass where
 --
 -- @since 1.0.0
 toSyntaxConverterE :: QuasiClass -> Q Exp
-toSyntaxConverterE QuasiClassBool = [e| \x -> Syntax (DatumB   x) def |]
-toSyntaxConverterE QuasiClassChar = [e| \x -> Syntax (DatumC   x) def |]
-toSyntaxConverterE QuasiClassF32  = [e| \x -> Syntax (DatumF32 x) def |]
-toSyntaxConverterE QuasiClassI32  = [e| \x -> Syntax (DatumI32 x) def |]
-toSyntaxConverterE QuasiClassId   = [e| \x -> identifierToSyntax  x   |]
-toSyntaxConverterE QuasiClassStx  = [e| \x -> x                       |]
+toSyntaxConverterE QuasiClassBool = [e| \x -> SyntaxB   x def      |]
+toSyntaxConverterE QuasiClassChar = [e| \x -> SyntaxC   x def      |]
+toSyntaxConverterE QuasiClassF32  = [e| \x -> SyntaxF32 x def      |]
+toSyntaxConverterE QuasiClassI32  = [e| \x -> SyntaxI32 x def      |]
+toSyntaxConverterE QuasiClassId   = [e| \x -> identifierToSyntax x |]
+toSyntaxConverterE QuasiClassStx  = [e| \x -> x                    |]
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+toSyntaxViewerE :: QuasiClass -> Exp
+toSyntaxViewerE QuasiClassBool = VarE 'preview `AppE` VarE 'syntaxBool
+toSyntaxViewerE QuasiClassChar = VarE 'preview `AppE` VarE 'syntaxChar
+toSyntaxViewerE QuasiClassF32  = VarE 'preview `AppE` VarE 'syntaxF32
+toSyntaxViewerE QuasiClassI32  = VarE 'preview `AppE` VarE 'syntaxI32
+toSyntaxViewerE QuasiClassId   = VarE 'preview `AppE` VarE 'syntaxId
+toSyntaxViewerE QuasiClassStx  = VarE 'id
 
 -- EllipsisClass ---------------------------------------------------------------
 
@@ -496,6 +585,6 @@ instance Show EllipsisClass where
 --
 -- @since 1.0.0
 toSyntaxesTransformerE :: EllipsisClass -> Q Exp
-toSyntaxesTransformerE EllipsisNone = [e| \f xs -> [f xs]                |]
-toSyntaxesTransformerE EllipsisMany = [e| \f xs -> map f xs              |]
-toSyntaxesTransformerE EllipsisSome = [e| \f xs -> foldr ((:) . f) [] xs |]
+toSyntaxesTransformerE EllipsisNone = [e| \f xs -> [f xs]                          |]
+toSyntaxesTransformerE EllipsisMany = [e| \f xs -> map f xs                        |]
+toSyntaxesTransformerE EllipsisSome = [e| \f xs -> foldr @NonEmpty ((:) . f) [] xs |]

@@ -324,25 +324,30 @@ readSyntaxI32 = tokenSyntax readDatumI32
 --
 -- @since 1.0.0
 readSyntaxList :: Reader Syntax -> Reader Syntax
-readSyntaxList = tokenSyntax . readDatumList . fmap DatumStx
+readSyntaxList reader = do
+  info <- readerSyntaxInfo
+  stxs <- readEnclosed (many reader)
+  pure (SyntaxList stxs info)
 
 -- | Read the @quote@ syntax sugar followed by any syntax object. The resulting
 -- syntax object @stx@ is desugared to @#'(quote stx)@.
 --
 -- @since 1.0.0
 readQuote :: Reader Syntax
-readQuote = tokenSyntax do
+readQuote = do
+  info  <- readerSyntaxInfo
   quote <- tokenSyntax (DatumS (stringToSymbol "quote") <$ single '\'')
-  datum <- readSyntax
-  pure (DatumList [DatumStx quote, DatumStx datum])
+  stx   <- readSyntax
+  pure (SyntaxList [quote, stx] info)
 
 -- | Read the @quote-syntax@ syntax sugar followed by any syntax object. The
 -- resulting syntax object @stx@ is desugared to @#'(quote-syntax stx)@.
 --
 -- @since 1.0.0
 readQuoteSyntax :: Reader Syntax
-readQuoteSyntax = tokenSyntax do
+readQuoteSyntax = do
+  info  <- readerSyntaxInfo
   quote <- tokenSyntax (DatumS (stringToSymbol "quote-syntax") <$ string "#'")
-  datum <- readSyntax
-  pure (DatumList [DatumStx quote, DatumStx datum])
+  stx   <- readSyntax
+  pure (SyntaxList [quote, stx] info)
 

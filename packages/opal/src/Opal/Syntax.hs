@@ -15,9 +15,19 @@
 --
 -- @since 1.0.0
 module Opal.Syntax
-  ( -- * Datum
-    Datum (..)
+  ( -- * Value
+    Value (..)
     -- ** Optics
+  , valueBool
+  , valueChar
+  , valueSymbol
+  , valueF32
+  , valueI32
+  , valueLambda
+    -- * Datum
+  , Datum (DatumB, DatumC, DatumS, DatumF32, DatumI32, DatumLam, ..)
+    -- ** Optics
+  , datumValue
   , datumBool
   , datumChar
   , datumSymbol
@@ -26,10 +36,6 @@ module Opal.Syntax
   , datumLambda
   , datumList
   , datumSyntax
-    -- ** Basic Operations
-  , datumKind
-    -- * DatumKind
-  , DatumKind (DatumKindId, ..)
     -- * Lambda
   , Lambda (..)
     -- ** Optics
@@ -50,24 +56,24 @@ module Opal.Syntax
   , idtInfo
   , idtScopes
     -- * Syntax
-  , Syntax (..)
+  , Syntax (SyntaxB, SyntaxC, SyntaxS, SyntaxF32, SyntaxI32, SyntaxLam, ..)
     -- ** Basic Operations
   , datumToSyntax
   , syntaxToDatum
-  , syntaxKind
     -- ** Scope Operations
   , syntaxScope
   , syntaxPrune
-    -- ** Conversion
-  , syntaxToIdentifier
     -- ** Optics
-  , stxDatum
-  , stxInfo
-  , stxScopes
-  , stxProperties
-  , stxBool
-  , stxChar
-  , stxId
+  , syntaxDatum
+  , syntaxInfo
+  , syntaxScopes
+  , syntaxProperties
+  , syntaxBool
+  , syntaxChar
+  , syntaxF32
+  , syntaxI32
+  , syntaxId
+  , syntaxList
     -- * SyntaxInfo
   , SyntaxInfo (..)
     -- ** Basic Operations
@@ -113,10 +119,6 @@ import System.IO.Unsafe (unsafePerformIO)
 
 --------------------------------------------------------------------------------
 
-showBool :: Bool -> ShowS
-showBool True  = showString "#t"
-showBool False = showString "#f"
-
 showSExp :: Show a => [a] -> ShowS
 showSExp []       = showString "()"
 showSExp (x : xs) = showChar '(' . shows x . run xs
@@ -124,37 +126,148 @@ showSExp (x : xs) = showChar '(' . shows x . run xs
     run []       = showChar ')'
     run (y : ys) = showChar ' ' . shows y . run ys
 
+-- Value -----------------------------------------------------------------------
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+data Value
+  = ValueB   !Bool
+    -- ^ A literal boolean value.
+  | ValueC   {-# UNPACK #-} !Char
+    -- ^ A literal character value.
+  | ValueS   {-# UNPACK #-} !Symbol
+    -- ^ A literal symbol value.
+  | ValueF32 {-# UNPACK #-} !Float
+    -- ^ A literal 32-bit floating point number value.
+  | ValueI32 {-# UNPACK #-} !Int32
+    -- ^ A literal 32-bit integer value.
+  | ValueLam {-# UNPACK #-} !Lambda
+    -- ^ A literal function value.
+  deriving (Eq, Generic, Ord, Lift)
+
+-- | @since 1.0.0
+instance Display Value where
+  display (ValueB    x) = if x then Doc.string "#t" else Doc.string "#f"
+  display (ValueC    x) = Doc.string "#\\" <> Doc.char x
+  display (ValueS    x) = display x
+  display (ValueF32  x) = Doc.string (show x)
+  display (ValueI32  x) = Doc.string (show x)
+  display (ValueLam  x) = Doc.string (show x)
+
+-- | @since 1.0.0
+instance NFData Value
+
+-- | @since 1.0.0
+instance Show Value where
+  showsPrec _ (ValueB    x) = if x then showString "#t" else showString "#f"
+  showsPrec _ (ValueC    x) = showString "#\\" . showChar x
+  showsPrec p (ValueS    x) = showsPrec p x
+  showsPrec p (ValueF32  x) = showsPrec p x
+  showsPrec p (ValueI32  x) = showsPrec p x
+  showsPrec p (ValueLam  x) = showsPrec p x
+
+-- Datum - Optics --------------------------------------------------------------
+
+-- | Prism focusing on the 'ValueB' constructor of 'Datum'.
+--
+-- @since 1.0.0
+valueBool :: Prism' Value Bool
+valueBool = prism' ValueB \case { ValueB x -> Just x; _ -> Nothing }
+{-# INLINE valueBool #-}
+
+-- | Prism focusing on the 'ValueC' constructor of 'Datum'.
+--
+-- @since 1.0.0
+valueChar :: Prism' Value Char
+valueChar = prism' ValueC \case { ValueC x -> Just x; _ -> Nothing }
+{-# INLINE valueChar #-}
+
+-- | Prism focusing on the 'ValueS' constructor of 'Datum'.
+--
+-- @since 1.0.0
+valueSymbol :: Prism' Value Symbol
+valueSymbol = prism' ValueS \case { ValueS x -> Just x; _ -> Nothing }
+{-# INLINE valueSymbol #-}
+
+-- | Prism focusing on the 'ValueF32' constructor of 'Datum'.
+--
+-- @since 1.0.0
+valueF32 :: Prism' Value Float
+valueF32 = prism' ValueF32 \case { ValueF32 x -> Just x; _ -> Nothing }
+{-# INLINE valueF32 #-}
+
+-- | Prism focusing on the 'DatumI32' constructor of 'Datum'.
+--
+-- @since 1.0.0
+valueI32 :: Prism' Value Int32
+valueI32 = prism' ValueI32 \case { ValueI32 x -> Just x; _ -> Nothing }
+{-# INLINE valueI32 #-}
+
+-- | Prism focusing on the 'ValueLam' constructor of 'Datum'.
+--
+-- @since 1.0.0
+valueLambda :: Prism' Value Lambda
+valueLambda = prism' ValueLam \case { ValueLam x -> Just x; _ -> Nothing }
+{-# INLINE valueLambda #-}
+
 -- Datum -----------------------------------------------------------------------
 
 -- | TODO: docs
 --
 -- @since 1.0.0
 data Datum
-  = DatumB Bool
-    -- ^ A literal boolean datum.
-  | DatumC {-# UNPACK #-} !Char
-    -- ^ A literal character datum.
-  | DatumS {-# UNPACK #-} !Symbol
-    -- ^ A literal symbol datum.
-  | DatumI32 {-# UNPACK #-} !Int32
-    -- ^ A literal 32-bit integer datum.
-  | DatumF32 {-# UNPACK #-} !Float
-    -- ^ A literal 32-bit floating-point number datum.
-  | DatumLam {-# UNPACK #-} !Lambda
-    -- ^ A 'Lambda' datum.
+  = DatumVal Value
+    -- ^ TODO: docs
   | DatumList [Datum]
     -- ^ A list of datums.
   | DatumStx {-# UNPACK #-} !Syntax
     -- ^ The 'Datum' representation of a syntax object.
   deriving (Eq, Generic, Lift, Ord)
 
+-- | Pattern synonym for @('DatumVal' (ValueB _) _)@.
+--
+-- @since 1.0.0
+pattern DatumB :: Bool -> Datum
+pattern DatumB x = DatumVal (ValueB x)
+
+-- | Pattern synonym for @('DatumVal' (ValueC _) _)@.
+--
+-- @since 1.0.0
+pattern DatumC :: Char -> Datum
+pattern DatumC x = DatumVal (ValueC x)
+
+-- | Pattern synonym for @('DatumVal' (ValueS _) _)@.
+--
+-- @since 1.0.0
+pattern DatumS :: Symbol -> Datum
+pattern DatumS x = DatumVal (ValueS x)
+
+-- | Pattern synonym for @('DatumVal' (ValueF32 _) _)@.
+--
+-- @since 1.0.0
+pattern DatumF32 :: Float -> Datum
+pattern DatumF32 x = DatumVal (ValueF32 x)
+
+-- | Pattern synonym for @('DatumVal' (ValueI32 _) _)@.
+--
+-- @since 1.0.0
+pattern DatumI32 :: Int32 -> Datum
+pattern DatumI32 x = DatumVal (ValueI32 x)
+
+-- | Pattern synonym for @('DatumVal' (ValueLam _) _)@.
+--
+-- @since 1.0.0
+pattern DatumLam :: Lambda -> Datum
+pattern DatumLam x = DatumVal (ValueLam x)
+
+{-# COMPLETE
+  DatumB, DatumC, DatumS, DatumF32, DatumI32, DatumLam, DatumList, DatumStx
+  #-}
+
 -- | @since 1.0.0
 instance Display Datum where
-  display (DatumB    x) = if x then Doc.string "#t" else Doc.string "#f"
-  display (DatumC    x) = Doc.string "#\\" <> Doc.char x
-  display (DatumS    x) = display x
-  display (DatumF32  x) = Doc.string (show x)
-  display (DatumI32  x) = Doc.string (show x)
+  display (DatumVal    x) = display x
   display (DatumLam  x) = display x
   display (DatumList x) = displayList x
   display (DatumStx  x) = display x
@@ -166,67 +279,60 @@ instance NFData Datum
 
 -- | @since 1.0.0
 instance Show Datum where
-  showsPrec _ (DatumB    x) = showBool x
-  showsPrec _ (DatumC    x) = showString "#\\" . showChar x
-  showsPrec p (DatumS    x) = showsPrec p x
-  showsPrec p (DatumF32  x) = showsPrec p x
-  showsPrec p (DatumI32  x) = showsPrec p x
+  showsPrec p (DatumVal    x) = showsPrec p x
   showsPrec p (DatumLam  x) = showsPrec p x
   showsPrec _ (DatumList x) = showList x
   showsPrec p (DatumStx  x) = showsPrec p x
 
   showList xs = showChar '\'' . showSExp xs
 
--- Datum - Basic Operations ----------------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-datumKind :: Datum -> DatumKind
-datumKind DatumB    {}   = DatumKindBool
-datumKind DatumC    {}   = DatumKindChar
-datumKind DatumS    {}   = DatumKindSymbol
-datumKind DatumF32  {}   = DatumKindF32
-datumKind DatumI32  {}   = DatumKindI32
-datumKind DatumLam  {}   = DatumKindLambda
-datumKind DatumList {}   = DatumKindList
-datumKind (DatumStx stx) = DatumKindSyntax (syntaxKind stx)
-
 -- Datum - Optics --------------------------------------------------------------
 
--- | Prism focusing on the 'DatumB' constructor of 'Datum'.
+-- | Prism focusing on the 'DatumVal' constructor of 'Datum'.
+--
+-- @since 1.0.0
+datumValue :: Prism' Datum Value
+datumValue = prism' DatumVal \case { DatumVal x -> Just x; _ -> Nothing }
+{-# INLINE datumValue #-}
+
+-- | Compound prism focusing on the @('datumValue' . 'datumBool')@ constructor
+-- of 'Datum'.
 --
 -- @since 1.0.0
 datumBool :: Prism' Datum Bool
-datumBool = prism' DatumB \case { DatumB x -> Just x; _ -> Nothing }
+datumBool = datumValue . valueBool
 {-# INLINE datumBool #-}
 
--- | Prism focusing on the 'DatumC' constructor of 'Datum'.
+-- | Compound prism focusing on the @('datumValue' . 'valueChar')@ constructor
+-- of 'Datum'.
 --
 -- @since 1.0.0
 datumChar :: Prism' Datum Char
-datumChar = prism' DatumC \case { DatumC x -> Just x; _ -> Nothing }
+datumChar = datumValue . valueChar
 {-# INLINE datumChar #-}
 
--- | Prism focusing on the 'DatumS' constructor of 'Datum'.
+-- | Compound prism focusing on the @('datumValue' . 'valueSymbol')@ constructor
+-- of 'Datum'.
 --
 -- @since 1.0.0
 datumSymbol :: Prism' Datum Symbol
-datumSymbol = prism' DatumS \case { DatumS x -> Just x; _ -> Nothing }
+datumSymbol = datumValue . valueSymbol
 {-# INLINE datumSymbol #-}
 
--- | Prism focusing on the 'DatumF32' constructor of 'Datum'.
+-- | Compound prism focusing on the @('datumValue' . 'valueF32')@ constructor
+-- of 'Datum'.
 --
 -- @since 1.0.0
 datumF32 :: Prism' Datum Float
-datumF32 = prism' DatumF32 \case { DatumF32 x -> Just x; _ -> Nothing }
+datumF32 = datumValue . valueF32
 {-# INLINE datumF32 #-}
 
--- | Prism focusing on the 'DatumI32' constructor of 'Datum'.
+-- | Compound prism focusing on the @('datumValue' . 'valueI32')@ constructor
+-- of 'Datum'.
 --
 -- @since 1.0.0
 datumI32 :: Prism' Datum Int32
-datumI32 = prism' DatumI32 \case { DatumI32 x -> Just x; _ -> Nothing }
+datumI32 = datumValue . valueI32
 {-# INLINE datumI32 #-}
 
 -- | Prism focusing on the 'DatumLam' constructor of 'Datum'.
@@ -249,48 +355,6 @@ datumList = prism' DatumList \case { DatumList x -> Just x; _ -> Nothing }
 datumSyntax :: Prism' Datum Syntax
 datumSyntax = prism' DatumStx \case { DatumStx x -> Just x; _ -> Nothing }
 {-# INLINE datumSyntax #-}
-
--- DatumKind -------------------------------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-data DatumKind
-  = DatumKindBool
-    -- ^ TODO: docs
-  | DatumKindChar
-    -- ^ TODO: docs
-  | DatumKindSymbol
-    -- ^ TODO: docs
-  | DatumKindF32
-    -- ^ TODO: docs
-  | DatumKindI32
-    -- ^ TODO: docs
-  | DatumKindLambda
-    -- ^ TODO: docs
-  | DatumKindList
-    -- ^ TODO: docs
-  | DatumKindSyntax DatumKind
-    -- ^ TODO: docs
-  deriving (Eq, Ord)
-
--- | TODO: docs
---
--- @since 1.0.0
-pattern DatumKindId :: DatumKind
-pattern DatumKindId = DatumKindSyntax DatumKindSymbol
-
--- | @since 1.0.0
-instance Show DatumKind where
-  show DatumKindBool       = "bool"
-  show DatumKindChar       = "char"
-  show DatumKindSymbol     = "symbol"
-  show DatumKindF32        = "f32"
-  show DatumKindI32        = "i32"
-  show DatumKindLambda     = "lambda"
-  show DatumKindList       = "list"
-  show DatumKindId         = "id"
-  show (DatumKindSyntax k) = "syntax-" ++ show k
 
 -- Lambda ----------------------------------------------------------------------
 
@@ -402,9 +466,6 @@ instance Show SExp where
 
   showList = showSExp
 
--- SExp - Basic Operations -----------------------------------------------------
-
-
 -- Identifier ------------------------------------------------------------------
 
 -- | The 'Identifier' type represents a 'Symbol' with lexical information. Any
@@ -434,7 +495,7 @@ instance Show Identifier where
 --
 -- @since 1.0.0
 identifierToSyntax :: Identifier -> Syntax
-identifierToSyntax (Identifier sym info) = Syntax (DatumS sym) info
+identifierToSyntax (Identifier s info) = SyntaxS s info
 
 -- Identifier - Scope Operations -----------------------------------------------
 
@@ -474,17 +535,54 @@ idtScopes = idtInfo . stxInfoScopes
 -- equipped with lexical information.
 --
 -- @since 1.0.0
-data Syntax = Syntax
-  { stx_datum :: Datum
-    -- ^ The datum that the wrapped by the syntax object.
-  , stx_info  :: {-# UNPACK #-} !SyntaxInfo
-    -- ^ The lexical information associated with the syntax object.
-  }
+data Syntax
+  = SyntaxVal  Value    {-# UNPACK #-} !SyntaxInfo
+  | SyntaxList [Syntax] {-# UNPACK #-} !SyntaxInfo
   deriving (Eq, Generic, Lift, Ord)
+
+-- | Pattern synonym for @('SyntaxVal' (ValueB _) _)@.
+--
+-- @since 1.0.0
+pattern SyntaxB :: Bool -> SyntaxInfo -> Syntax
+pattern SyntaxB x info = SyntaxVal (ValueB x) info
+
+-- | Pattern synonym for @('SyntaxVal' (ValueC _) _)@.
+--
+-- @since 1.0.0
+pattern SyntaxC :: Char -> SyntaxInfo -> Syntax
+pattern SyntaxC x info = SyntaxVal (ValueC x) info
+
+-- | Pattern synonym for @('SyntaxVal' (ValueS _) _)@.
+--
+-- @since 1.0.0
+pattern SyntaxS :: Symbol -> SyntaxInfo -> Syntax
+pattern SyntaxS x info = SyntaxVal (ValueS x) info
+
+-- | Pattern synonym for @('SyntaxVal' (ValueF32 _) _)@.
+--
+-- @since 1.0.0
+pattern SyntaxF32 :: Float -> SyntaxInfo -> Syntax
+pattern SyntaxF32 x info = SyntaxVal (ValueF32 x) info
+
+-- | Pattern synonym for @('SyntaxVal' (ValueI32 _) _)@.
+--
+-- @since 1.0.0
+pattern SyntaxI32 :: Int32 -> SyntaxInfo -> Syntax
+pattern SyntaxI32 x info = SyntaxVal (ValueI32 x) info
+
+-- | Pattern synonym for @('SyntaxVal' (ValueLam _) _)@.
+--
+-- @since 1.0.0
+pattern SyntaxLam :: Lambda -> SyntaxInfo -> Syntax
+pattern SyntaxLam x info = SyntaxVal (ValueLam x) info
+
+{-# COMPLETE
+  SyntaxB, SyntaxC, SyntaxS, SyntaxF32, SyntaxI32, SyntaxLam, SyntaxList
+  #-}
 
 -- | @since 1.0.0
 instance Display Syntax where
-  display stx = case stx ^. stxDatum of
+  display stx = case stx ^. syntaxDatum of
     DatumS    x -> Doc.char '#' <> display x
     DatumList x -> Doc.group (Doc.char '#' <> displayList x)
     datum       -> display datum
@@ -493,19 +591,19 @@ instance Display Syntax where
 instance IsList Syntax where
   type Item Syntax = Syntax
 
-  fromList stxs = Syntax (DatumList (map DatumStx stxs)) def
+  fromList stxs = SyntaxList stxs def
 
-  toList (Syntax (DatumList stxs) info) = map (datumToSyntax info) stxs
-  toList _ = errorWithoutStackTrace "(toList @Syntax): syntax object is not a list"
+  toList (SyntaxList stxs _) = stxs
+  toList _                   = errorWithoutStackTrace "(toList @Syntax): syntax object is not a list"
 
 -- | @since 1.0.0
 instance NFData Syntax
 
 -- | @since 1.0.0
 instance Show Syntax where
-  showsPrec p (Syntax (DatumS s)       _) = showChar '#' . showsPrec p s
-  showsPrec p (Syntax (DatumList stxs) _) = showChar '#' . showsPrec p stxs
-  showsPrec p (Syntax val              _) = showsPrec p val
+  showsPrec p (SyntaxS    s    _) = showChar '#' . showsPrec p s
+  showsPrec p (SyntaxVal  val  _) = showsPrec p val
+  showsPrec _ (SyntaxList stxs _) = showList stxs
 
   showList xs = showString "#'" . showSExp xs
 
@@ -525,16 +623,16 @@ instance Show Syntax where
 --
 -- @since 1.0.0
 datumToSyntax :: SyntaxInfo -> Datum -> Syntax
-datumToSyntax _    (DatumStx  stx) = stx
-datumToSyntax ctxt (DatumList vxs) = Syntax (DatumList (map (DatumStx . datumToSyntax ctxt) vxs)) ctxt
-datumToSyntax ctxt datum           = Syntax datum ctxt
+datumToSyntax info (DatumVal    val)  = SyntaxVal val info
+datumToSyntax info (DatumList vals) = SyntaxList (map (datumToSyntax info) vals) info
+datumToSyntax _    (DatumStx  stx)  = stx
 
 -- | Converts a 'Syntax' object to a datum by stripping the syntax object's
 -- lexical information.
 --
 -- @since 1.0.0
 syntaxToDatum :: Syntax -> Datum
-syntaxToDatum stx = case stx ^. stxDatum of
+syntaxToDatum stx = case stx ^. syntaxDatum of
   DatumStx  v   -> syntaxToDatum v
   DatumList vxs -> DatumList (map stripSyntax vxs)
   datum         -> datum
@@ -543,109 +641,109 @@ syntaxToDatum stx = case stx ^. stxDatum of
     stripSyntax (DatumStx v) = syntaxToDatum v
     stripSyntax datum        = datum
 
--- | TODO: docs
---
--- @since 1.0.0
-syntaxKind :: Syntax -> DatumKind
-syntaxKind = datumKind . syntaxToDatum
-
 -- Syntax - Scope Operations ---------------------------------------------------
 
 -- | TODO: docs
 --
 -- @since 1.0.0
 syntaxScope :: Maybe Phase -> Scope -> Syntax -> Syntax
-syntaxScope ph sc stx =
-  let val  = datumScope (syntaxToDatum stx)
-      info = over stxInfoScopes (ScopeInfo.insert ph sc) (stx ^. stxInfo)
-   in Syntax val info
-  where
-    datumScope :: Datum -> Datum
-    datumScope (DatumStx  val)  = DatumStx (syntaxScope ph sc val)
-    datumScope (DatumList vals) = DatumList (map datumScope vals)
-    datumScope val              = val
+syntaxScope ph sc (SyntaxVal val info) =
+  let info' = over stxInfoScopes (ScopeInfo.insert ph sc) info
+   in SyntaxVal val info'
+syntaxScope ph sc (SyntaxList stxs info) =
+  let stxs' = map (syntaxScope ph sc) stxs
+      info' = over stxInfoScopes (ScopeInfo.insert ph sc) info
+   in SyntaxList stxs' info'
 
 -- | TODO: docs
 --
 -- @since 1.0.0
 syntaxPrune :: Phase -> ScopeSet -> Syntax -> Syntax
-syntaxPrune ph scps stx =
-  let val  = datumPrune (syntaxToDatum stx)
-      info = over stxInfoScopes (ScopeInfo.deletes ph scps) (stx ^. stxInfo)
-   in Syntax val info
-  where
-    datumPrune :: Datum -> Datum
-    datumPrune (DatumStx  val)  = DatumStx (syntaxPrune ph scps val)
-    datumPrune (DatumList vals) = DatumList (map datumPrune vals)
-    datumPrune val              = val
-
--- Syntax - Conversion ---------------------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-syntaxToIdentifier :: Syntax -> Maybe Identifier
-syntaxToIdentifier stx = case syntaxToDatum stx of
-  DatumS s -> Just (Identifier s (stx ^. stxInfo))
-  _        -> Nothing
+syntaxPrune ph scps (SyntaxVal val info) =
+  let info' = over stxInfoScopes (ScopeInfo.deletes ph scps) info
+   in SyntaxVal val info'
+syntaxPrune ph scps (SyntaxList stxs info) =
+  let stxs' = map (syntaxPrune ph scps) stxs
+      info' = over stxInfoScopes (ScopeInfo.deletes ph scps) info
+   in SyntaxList stxs' info'
 
 -- Syntax - Optics -------------------------------------------------------------
 
 -- | TODO: docs
 --
 -- @since 1.0.0
-stxDatum :: Lens' Syntax Datum
-stxDatum = lens syntaxToDatum \s -> datumToSyntax (s ^. stxInfo)
-{-# INLINE stxDatum #-}
+syntaxDatum :: Lens' Syntax Datum
+syntaxDatum = lens syntaxToDatum \s -> datumToSyntax (s ^. syntaxInfo)
 
 -- | Lens focusing on the 'stx_info' field of 'Syntax'.
 --
 -- @since 1.0.0
-stxInfo :: Lens' Syntax SyntaxInfo
-stxInfo = lens stx_info \s x -> s { stx_info = x }
-{-# INLINE stxInfo #-}
+syntaxInfo :: Lens' Syntax SyntaxInfo
+syntaxInfo = lens getter setter
+  where
+    getter :: Syntax -> SyntaxInfo
+    getter (SyntaxVal  _ info) = info
+    getter (SyntaxList _ info) = info
+
+    setter :: Syntax -> SyntaxInfo -> Syntax
+    setter (SyntaxVal  val  _) info = SyntaxVal  val  info
+    setter (SyntaxList stxs _) info = SyntaxList stxs info
 
 -- | Compound lens focusing on @('stxInfo' . 'stxInfoProperties')@ field of a
 -- 'Syntax'.
 --
 -- @since 1.0.0
-stxProperties :: Lens' Syntax (HashMap Symbol Syntax)
-stxProperties = stxInfo . stxInfoProperties
-{-# INLINE stxProperties #-}
+syntaxProperties :: Lens' Syntax (HashMap Symbol Syntax)
+syntaxProperties = syntaxInfo . stxInfoProperties
 
 -- | Compound lens focusing on @('stxInfo' . 'stxInfoScopes')@ field of a
 -- 'Syntax'.
 --
 -- @since 1.0.0
-stxScopes :: Lens' Syntax ScopeInfo
-stxScopes = stxInfo . stxInfoScopes
-{-# INLINE stxScopes #-}
+syntaxScopes :: Lens' Syntax ScopeInfo
+syntaxScopes = syntaxInfo . stxInfoScopes
 
--- | Compound prism focusing on the @('DatumB' . 'stxDatum')@ constructor of a
--- 'Syntax'.
+-- | Compound prism focusing on the @('datumBool' . 'syntaxDatum')@ constructor
+-- of 'Datum'.
 --
 -- @since 1.0.0
-stxBool :: Prism' Syntax Bool
-stxBool = prism' (\x -> Syntax (DatumB x) def) (preview datumBool . view stxDatum)
-{-# INLINE stxBool #-}
+syntaxBool :: Prism' Syntax Bool
+syntaxBool = prism' (datumToSyntax def . DatumB) (preview datumBool . view syntaxDatum)
 
--- | Compound prism focusing on the @('DatumC' . 'stxDatum')@ constructor of a
--- 'Syntax'.
+-- | Compound prism focusing on the @('datumChar' . 'syntaxDatum')@ constructor
+-- of 'Datum'.
 --
 -- @since 1.0.0
-stxChar :: Prism' Syntax Char
-stxChar = prism' (\x -> Syntax (DatumC x) def) (preview datumChar . view stxDatum)
-{-# INLINE stxChar #-}
+syntaxChar :: Prism' Syntax Char
+syntaxChar = prism' (datumToSyntax def . DatumC) (preview datumChar . view syntaxDatum)
 
--- | Compound prism focusing on the @('DatumC' . 'stxDatum')@ constructor of a
--- 'Syntax'.
+-- | Compound prism focusing on the @('datumF32' . 'syntaxDatum')@ constructor
+-- of 'Datum'.
 --
 -- @since 1.0.0
-stxId :: Prism' Syntax Identifier
-stxId = prism' identifierToSyntax \case
-  Syntax (DatumS s) info -> Just (Identifier s info)
-  _                      -> Nothing
-{-# INLINE stxId #-}
+syntaxF32 :: Prism' Syntax Float
+syntaxF32 = prism' (datumToSyntax def . DatumF32) (preview datumF32 . view syntaxDatum)
+
+-- | Compound prism focusing on the @('datumI32' . 'syntaxDatum')@ constructor
+-- of 'Datum'.
+--
+-- @since 1.0.0
+syntaxI32 :: Prism' Syntax Int32
+syntaxI32 = prism' (datumToSyntax def . DatumI32) (preview datumI32 . view syntaxDatum)
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+syntaxId :: Prism' Syntax Identifier
+syntaxId = prism' identifierToSyntax \case
+  SyntaxS s info -> Just (Identifier s info)
+  _              -> Nothing
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+syntaxList :: Prism' Syntax [Syntax]
+syntaxList = prism' (\x -> SyntaxList x def) \case { SyntaxList stxs _ -> Just stxs ; _ -> Nothing }
 
 -- SyntaxInfo ------------------------------------------------------------------
 

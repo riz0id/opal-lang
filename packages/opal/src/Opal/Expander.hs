@@ -41,8 +41,6 @@ import Data.IORef (readIORef)
 import Data.HashMap.Strict qualified as HashMap
 import Data.Traversable (for)
 
-import GHC.Exts (IsList(..))
-
 import Opal.Common.BindingStore (insertBindingStore, coreBindingStore)
 import Opal.Common.Scope (MonadScope (..))
 import Opal.Common.Symbol (MonadGenSym (..), Symbol)
@@ -68,7 +66,6 @@ runExpandSyntax stx =
 
     expandState :: ExpandState
     expandState = def & expandBindingStore .~ coreBindingStore
-
 
 -- Expand - Binding Operations -------------------------------------------------
 
@@ -100,7 +97,7 @@ expandSyntax :: Syntax -> Expand Syntax
 expandSyntax [syntax| (?fun:id ?stxs ...) |] = do
   expandSyntaxListId fun stxs
 expandSyntax [syntax| (?stxs ...)         |] = do
-  liftIO (print (map (^. stxInfo) stxs))
+  liftIO (print (map (^. syntaxInfo) stxs))
   expandSyntaxList stxs
 expandSyntax [syntax| ?stx:id             |] = expandIdentifier stx
 expandSyntax [syntax| ?stx                |] = pure stx
@@ -129,7 +126,7 @@ expandIdentifier idt = do
     transformerToId (TransformerVar var)   = expandIdentifier var
     transformerToId (TransformerVal loc)   = do
       val <- liftIO (readIORef loc)
-      pure (Syntax val (idt ^. idtInfo))
+      pure (datumToSyntax (idt ^. idtInfo) val)
 
 -- | TODO: docs
 --

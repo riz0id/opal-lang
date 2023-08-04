@@ -1,10 +1,5 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE QuasiQuotes                #-}
-{-# LANGUAGE OverloadedStrings          #-}
-
+{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_HADDOCK show-extensions #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
 
 -- |
 -- Module      :  Opal.Quasi.Reader
@@ -19,19 +14,8 @@
 --
 -- @since 1.0.0
 module Opal.Quasi.Reader
-  ( -- * QuasiReader
-    QuasiReader (..)
-    -- ** Basic Operations
-  , runQuasiReader
-    -- ** Error Operations
-  , throwUnexpected
-  , errorLabel
-    -- ** Combinators
-  , anyIdentifier
-  , satisfyIdentifier
-  , identifier
-    -- * QuasiReader
-  , QuasiReaderError (..)
+  ( -- * Readers
+    runQuasiReader
     -- * Readers
   , readQExp
   , readQuasiVar
@@ -40,207 +24,81 @@ module Opal.Quasi.Reader
   )
 where
 
-import Control.Applicative (Alternative(..))
-
-import Control.Lens ((^.))
-
-import Control.Monad (MonadPlus(..))
-
 import Data.Primitive.Array qualified as Array
-import Data.List.NonEmpty (NonEmpty)
-import Data.Void (Void)
+import Data.Text (Text)
+import Data.Text qualified as Text
 
-import Opal.Common.NonEmpty.TH (nonEmptyString)
-import Opal.Common.Symbol (Symbol)
-import Opal.Common.Symbol qualified as Symbol
+import Language.Haskell.TH (Loc (..), Q)
+import Language.Haskell.TH qualified as TH
+
+import Opal.Common.Symbol
+  ( eqSymbol
+  , splitSymbol
+  , symbolTail
+  , symbolToString, symbolHead
+  )
 import Opal.Quasi
-import Opal.Syntax (Datum (..), Identifier (..), Syntax)
-import Opal.Syntax qualified as Syntax
-import Opal.Reader (runStringReader)
+import Opal.Reader (Reader (..), ReaderError (..), readEnclosed, readSymbol,)
 
-import Text.Megaparsec (ErrorItem (..), MonadParsec (..), Parsec)
-import Text.Megaparsec qualified as Parsec
+import Text.Megaparsec
+import Text.Megaparsec.Char (space, string)
 
--- QuasiReader -----------------------------------------------------------------
+-- Basic Operations ------------------------------------------------------------
 
 -- | TODO: docs
 --
 -- @since 1.0.0
-newtype QuasiReader a = QuasiReader
-  { unQuasiReader :: Parsec Void [Syntax] a }
-  deriving
-    ( Functor
-    , Applicative
-    , Alternative
-    , Monad
-    , MonadPlus
-    , MonadParsec Void [Syntax]
-    )
-
--- QuasiReader - Basic Operations ----------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-runQuasiReader :: FilePath -> String -> QuasiReader a -> IO a
-runQuasiReader filepath input reader = do
-  stxs <- case runStringReader filepath input of
-    Left  exn -> error (Parsec.errorBundlePretty exn)
-    Right stx -> pure [stx]
-
-  case Parsec.parse (unQuasiReader reader) filepath stxs of
-    Left  e -> error (show e)
-    Right x -> pure x
-
--- QuasiReader - Error Operations ----------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-throwUnexpected :: Syntax -> QuasiReader a
-throwUnexpected = Parsec.unexpected . Label . errorLabel
-
--- | TODO: docs
---
--- @since 1.0.0
-errorLabel :: Syntax -> NonEmpty Char
-errorLabel stx = case Syntax.syntaxToDatum stx of
-  DatumB    {}   -> [nonEmptyString| "bool" |]
-  DatumC    {}   -> [nonEmptyString| "char" |]
-  DatumS    {}   -> [nonEmptyString| "identifier" |]
-  DatumF32  {}   -> [nonEmptyString| "f32" |]
-  DatumI32  {}   -> [nonEmptyString| "i32" |]
-  DatumLam  {}   -> [nonEmptyString| "lambda" |]
-  DatumList {}   -> [nonEmptyString| "list" |]
-  DatumStx  stx' -> errorLabel stx'
-
--- QuasiReader - Combinators ---------------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-withInput :: [Syntax] -> QuasiReader a -> QuasiReader a
-withInput newInput parser = do
-  prevInput <- Parsec.getInput
-  Parsec.setInput newInput
-  result <- parser
-  result <$ Parsec.setInput prevInput
-
--- | TODO: docs
---
--- @since 1.0.0
-anyIdentifier :: QuasiReader Identifier
-anyIdentifier = do
-  stx <- Parsec.anySingle
-  case Syntax.syntaxToIdentifier stx of
-    Nothing  -> throwUnexpected stx
-    Just idt -> pure idt
-
--- | TODO: docs
---
--- @since 1.0.0
-syntaxList :: QuasiReader a -> QuasiReader [a]
-syntaxList reader = do
-  stx <- Parsec.anySingle
-  case Syntax.syntaxToDatum stx of
-    DatumList vals -> do
-      let stxs = map (Syntax.datumToSyntax (stx ^. Syntax.stxInfo)) vals
-      withInput stxs (many reader)
-    _              ->
-      throwUnexpected stx
-
--- | TODO: docs
---
--- @since 1.0.0
-satisfyIdentifier :: (Identifier -> Bool) -> QuasiReader Identifier
-satisfyIdentifier match = do
-  idt <- anyIdentifier
-  if match idt
-    then pure idt
-    else throwUnexpected (Syntax.identifierToSyntax idt)
-
--- | TODO: docs
---
--- @since 1.0.0
-identifier :: Symbol -> QuasiReader Identifier
-identifier s =
-  satisfyIdentifier \idt ->
-    Symbol.eqSymbol (idt ^. Syntax.idtSymbol) s
-
--- QuasiReaderError ------------------------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-data QuasiReaderError = QuasiReaderError
-  deriving (Eq, Ord, Show)
+runQuasiReader :: String -> Q QExp
+runQuasiReader input = do
+  filepath <- fmap loc_filename TH.location
+  let text :: Text
+      text = Text.pack input
+   in case parse (unReader readQExp) filepath text of
+        Left err -> fail (errorBundlePretty err)
+        Right a  -> pure a
 
 -- Readers ---------------------------------------------------------------------
 
 -- | TODO: docs
 --
 -- @since 1.0.0
-readQExp :: QuasiReader QExp
-readQExp =
-  Parsec.choice
-    [ try (fmap QVal readQuasiVal)
-    , try (fmap QVar readQuasiVar)
-    , fmap QExp readQuasiList
-    ]
+readQExp :: Reader QExp
+readQExp = space *> choice [try readQuasiVar, readQuasiList] <* space
 
 -- | TODO: docs
 --
 -- @since 1.0.0
-readQuasiVal :: QuasiReader QuasiVal
-readQuasiVal = do
-  Parsec.choice
-    [ fmap QuasiValS readQuasiSymbol
-    ]
-
--- | TODO: docs
---
--- @since 1.0.0
-readQuasiSymbol :: QuasiReader Symbol
-readQuasiSymbol = do
-  idt <- satisfyIdentifier \idt ->
-    Symbol.symbolHead (idt ^. Syntax.idtSymbol) /= '?'
-  pure (idt ^. Syntax.idtSymbol)
-
--- | TODO: docs
---
--- @since 1.0.0
-readQuasiVar :: QuasiReader QuasiVar
+readQuasiVar :: Reader QExp
 readQuasiVar = do
-  idt <- satisfyIdentifier \idt ->
-    Symbol.symbolHead (idt ^. Syntax.idtSymbol) == '?'
-
-  (var, k) <- case Symbol.symbolTail (idt ^. Syntax.idtSymbol) of
-    Nothing -> throwUnexpected (Syntax.identifierToSyntax idt)
-    Just s  -> case Symbol.splitSymbol (== ':') s of
-      Nothing -> pure (s, QuasiClassStx)
-      Just (s', k)
-        | k `Symbol.eqSymbol` ":id" -> pure (s', QuasiClassId)
-        | otherwise                 -> throwUnexpected (Syntax.identifierToSyntax idt)
+  s <- readSymbol <* space
 
   ellipsis <- readEllipsisClass
 
-  pure (QuasiVar var k ellipsis)
+  if symbolHead s == '?'
+    then case symbolTail s of
+      Nothing -> pure (QVal (QuasiValS s))
+      Just s' -> case splitSymbol (== ':') s' of
+        Nothing -> pure (QVar (QuasiVar s' QuasiClassStx ellipsis))
+        Just (var, k)
+          | k `eqSymbol` ":id" -> pure (QVar (QuasiVar var QuasiClassId ellipsis))
+          | otherwise          -> customFailure (ReaderError ("invalid quasi-variable class: " ++ symbolToString k))
+    else pure (QVal (QuasiValS s))
 
 -- | TODO: docs
 --
 -- @since 1.0.0
-readQuasiList :: QuasiReader QuasiList
+readQuasiList :: Reader QExp
 readQuasiList = do
-  exps <- syntaxList readQExp
-  pure (QuasiList (Array.fromList exps))
+  list <- readEnclosed (many readQExp)
+  pure (QExp (QuasiList (Array.fromList list)))
 
 -- | TODO: docs
 --
 -- @since 1.0.0
-readEllipsisClass :: QuasiReader EllipsisClass
+readEllipsisClass :: Reader EllipsisClass
 readEllipsisClass =
-  Parsec.choice
-    [ try (EllipsisSome <$ identifier "...+")
-    , try (EllipsisMany <$ identifier "...")
+  choice
+    [ try (EllipsisSome <$ string "...+")
+    , try (EllipsisMany <$ string "...")
     , pure EllipsisNone
     ]
