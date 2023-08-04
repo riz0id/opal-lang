@@ -18,9 +18,10 @@ import Hedgehog (evalIO, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 
-import Opal.Common.Symbol 
-  ( stringToSymbol 
+import Opal.Common.Symbol
+  ( stringToSymbol
   , symbolToString
+  , symbolHead
   )
 
 import Test.Core (TestTree, testCase, testGroup)
@@ -28,11 +29,15 @@ import Test.Core (TestTree, testCase, testGroup)
 --------------------------------------------------------------------------------
 
 testTree :: TestTree
-testTree = 
+testTree =
   testGroup "symbol"
-    [ testCase "stringToSymbol/symbolToString" do 
-        xs  <- forAll $ Gen.string (Range.linear 0 100) Gen.unicode
-        buf <- evalIO $ evaluate $ stringToSymbol xs
-        ys  <- evalIO $ evaluate $ symbolToString buf
-        xs === ys
+    [ testCase "stringToSymbol/symbolToString" do
+        str1 <- forAll $ Gen.string (Range.linear 0 100) Gen.unicode
+        sym  <- evalIO $ evaluate $ stringToSymbol str1
+        str2 <- evalIO $ evaluate $ symbolToString sym
+        str1 === str2
+    , testCase "symbolHead" do
+        str <- forAll $ Gen.string (Range.linear 1 10) Gen.unicode
+        sym <- evalIO $ evaluate $ stringToSymbol str
+        head str === symbolHead sym
     ]

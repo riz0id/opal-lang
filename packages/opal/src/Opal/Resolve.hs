@@ -39,6 +39,8 @@ resolve :: Phase -> Identifier -> BindingStore -> Maybe Symbol
 resolve ph idt store = do
   let scps :: ScopeSet
       scps = ScopeInfo.lookup (Just ph) (idt ^. idtScopes)
-  bindings <- lookupBindingStore (idt ^. idtSymbol) store
-  result   <- largestSubset scps bindings
-  pure (snd result)
+   in case lookupBindingStore (idt ^. idtSymbol) store of
+        Nothing       -> Nothing
+        Just bindings -> do
+          result <- largestSubset scps bindings
+          pure (snd result)

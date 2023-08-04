@@ -17,13 +17,22 @@
 module Opal.Syntax
   ( -- * Datum
     Datum (..)
+    -- ** Optics
+  , datumBool
+  , datumChar
+  , datumSymbol
+  , datumF32
+  , datumI32
+  , datumLambda
+  , datumList
+  , datumSyntax
     -- ** Basic Operations
   , datumKind
     -- * DatumKind
   , DatumKind (DatumKindId, ..)
     -- * Lambda
   , Lambda (..)
-    -- ** Lenses
+    -- ** Optics
   , lambdaArgs
   , lambdaBody
     -- ** Query
@@ -36,7 +45,7 @@ module Opal.Syntax
   , identifierToSyntax
     -- ** Scope Operations
   , identifierScope
-    -- ** Lenses
+    -- ** Optics
   , idtSymbol
   , idtInfo
   , idtScopes
@@ -51,16 +60,19 @@ module Opal.Syntax
   , syntaxPrune
     -- ** Conversion
   , syntaxToIdentifier
-    -- ** Lenses
+    -- ** Optics
   , stxDatum
   , stxInfo
   , stxScopes
   , stxProperties
+  , stxBool
+  , stxChar
+  , stxId
     -- * SyntaxInfo
   , SyntaxInfo (..)
     -- ** Basic Operations
   , defaultSyntaxInfo
-    -- ** Lenses
+    -- ** Optics
   , stxInfoSource
   , stxInfoSrcLoc
   , stxInfoProperties
@@ -72,7 +84,7 @@ where
 
 import Control.DeepSeq (NFData)
 
-import Control.Lens (Lens', lens, view, (^.), over)
+import Control.Lens (Lens', Prism', lens, over, preview, prism', view, (^.))
 
 import Data.Default (Default (..))
 import Data.HashMap.Strict (HashMap)
@@ -180,6 +192,64 @@ datumKind DatumLam  {}   = DatumKindLambda
 datumKind DatumList {}   = DatumKindList
 datumKind (DatumStx stx) = DatumKindSyntax (syntaxKind stx)
 
+-- Datum - Optics --------------------------------------------------------------
+
+-- | Prism focusing on the 'DatumB' constructor of 'Datum'.
+--
+-- @since 1.0.0
+datumBool :: Prism' Datum Bool
+datumBool = prism' DatumB \case { DatumB x -> Just x; _ -> Nothing }
+{-# INLINE datumBool #-}
+
+-- | Prism focusing on the 'DatumC' constructor of 'Datum'.
+--
+-- @since 1.0.0
+datumChar :: Prism' Datum Char
+datumChar = prism' DatumC \case { DatumC x -> Just x; _ -> Nothing }
+{-# INLINE datumChar #-}
+
+-- | Prism focusing on the 'DatumS' constructor of 'Datum'.
+--
+-- @since 1.0.0
+datumSymbol :: Prism' Datum Symbol
+datumSymbol = prism' DatumS \case { DatumS x -> Just x; _ -> Nothing }
+{-# INLINE datumSymbol #-}
+
+-- | Prism focusing on the 'DatumF32' constructor of 'Datum'.
+--
+-- @since 1.0.0
+datumF32 :: Prism' Datum Float
+datumF32 = prism' DatumF32 \case { DatumF32 x -> Just x; _ -> Nothing }
+{-# INLINE datumF32 #-}
+
+-- | Prism focusing on the 'DatumI32' constructor of 'Datum'.
+--
+-- @since 1.0.0
+datumI32 :: Prism' Datum Int32
+datumI32 = prism' DatumI32 \case { DatumI32 x -> Just x; _ -> Nothing }
+{-# INLINE datumI32 #-}
+
+-- | Prism focusing on the 'DatumLam' constructor of 'Datum'.
+--
+-- @since 1.0.0
+datumLambda :: Prism' Datum Lambda
+datumLambda = prism' DatumLam \case { DatumLam x -> Just x; _ -> Nothing }
+{-# INLINE datumLambda #-}
+
+-- | Prism focusing on the 'DatumList' constructor of 'Datum'.
+--
+-- @since 1.0.0
+datumList :: Prism' Datum [Datum]
+datumList = prism' DatumList \case { DatumList x -> Just x; _ -> Nothing }
+{-# INLINE datumList #-}
+
+-- | Prism focusing on the 'DatumStx' constructor of 'Datum'.
+--
+-- @since 1.0.0
+datumSyntax :: Prism' Datum Syntax
+datumSyntax = prism' DatumStx \case { DatumStx x -> Just x; _ -> Nothing }
+{-# INLINE datumSyntax #-}
+
 -- DatumKind -------------------------------------------------------------------
 
 -- | TODO: docs
@@ -222,7 +292,6 @@ instance Show DatumKind where
   show DatumKindId         = "id"
   show (DatumKindSyntax k) = "syntax-" ++ show k
 
-
 -- Lambda ----------------------------------------------------------------------
 
 -- | The 'Lambda' type represents a lambda or function value.
@@ -260,7 +329,7 @@ instance Show Lambda where
       showBody []       = showChar ')'
       showBody (y : ys) = showChar ' ' . showsPrec p y . showBody ys
 
--- Lambda - Lenses -------------------------------------------------------------
+-- Lambda - Optics -------------------------------------------------------------
 
 -- | Lens focusing on the 'lambda_args' field of 'Lambda'.
 --
@@ -375,7 +444,7 @@ identifierToSyntax (Identifier sym info) = Syntax (DatumS sym) info
 identifierScope :: Maybe Phase -> Scope -> Identifier -> Identifier
 identifierScope ph sc = over idtScopes (ScopeInfo.insert ph sc)
 
--- Identifier - Lenses ---------------------------------------------------------
+-- Identifier - Optics ---------------------------------------------------------
 
 -- | Lens focusing on the 'idt_symbol' field of 'Identifier'.
 --
@@ -520,13 +589,13 @@ syntaxToIdentifier stx = case syntaxToDatum stx of
   DatumS s -> Just (Identifier s (stx ^. stxInfo))
   _        -> Nothing
 
--- Syntax - Lenses -------------------------------------------------------------
+-- Syntax - Optics -------------------------------------------------------------
 
--- | Lens focusing on the 'stx_datum' field of 'Syntax'.
+-- | TODO: docs
 --
 -- @since 1.0.0
 stxDatum :: Lens' Syntax Datum
-stxDatum = lens stx_datum \s x -> s { stx_datum = x }
+stxDatum = lens syntaxToDatum \s -> datumToSyntax (s ^. stxInfo)
 {-# INLINE stxDatum #-}
 
 -- | Lens focusing on the 'stx_info' field of 'Syntax'.
@@ -551,6 +620,32 @@ stxProperties = stxInfo . stxInfoProperties
 stxScopes :: Lens' Syntax ScopeInfo
 stxScopes = stxInfo . stxInfoScopes
 {-# INLINE stxScopes #-}
+
+-- | Compound prism focusing on the @('DatumB' . 'stxDatum')@ constructor of a
+-- 'Syntax'.
+--
+-- @since 1.0.0
+stxBool :: Prism' Syntax Bool
+stxBool = prism' (\x -> Syntax (DatumB x) def) (preview datumBool . view stxDatum)
+{-# INLINE stxBool #-}
+
+-- | Compound prism focusing on the @('DatumC' . 'stxDatum')@ constructor of a
+-- 'Syntax'.
+--
+-- @since 1.0.0
+stxChar :: Prism' Syntax Char
+stxChar = prism' (\x -> Syntax (DatumC x) def) (preview datumChar . view stxDatum)
+{-# INLINE stxChar #-}
+
+-- | Compound prism focusing on the @('DatumC' . 'stxDatum')@ constructor of a
+-- 'Syntax'.
+--
+-- @since 1.0.0
+stxId :: Prism' Syntax Identifier
+stxId = prism' identifierToSyntax \case
+  Syntax (DatumS s) info -> Just (Identifier s info)
+  _                      -> Nothing
+{-# INLINE stxId #-}
 
 -- SyntaxInfo ------------------------------------------------------------------
 
@@ -597,7 +692,7 @@ instance NFData SyntaxInfo
 defaultSyntaxInfo :: SyntaxInfo
 defaultSyntaxInfo = SyntaxInfo def def def HashMap.empty
 
--- SyntaxInfo - Lenses ---------------------------------------------------------
+-- SyntaxInfo - Optics ---------------------------------------------------------
 
 -- | Lens focusing on the 'stx_info_properties' field of 'SyntaxInfo'.
 --

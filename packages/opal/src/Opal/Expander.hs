@@ -97,8 +97,11 @@ withExpansionContext ctx = local (set expandContext ctx)
 --
 -- @since 1.0.0
 expandSyntax :: Syntax -> Expand Syntax
-expandSyntax [syntax| (?fun:id ?stxs ...) |] = expandSyntaxListId fun stxs
-expandSyntax [syntax| (?stxs ...)         |] = expandSyntaxList stxs
+expandSyntax [syntax| (?fun:id ?stxs ...) |] = do
+  expandSyntaxListId fun stxs
+expandSyntax [syntax| (?stxs ...)         |] = do
+  liftIO (print (map (^. stxInfo) stxs))
+  expandSyntaxList stxs
 expandSyntax [syntax| ?stx:id             |] = expandIdentifier stx
 expandSyntax [syntax| ?stx                |] = pure stx
 
@@ -147,7 +150,7 @@ expandSyntaxListId idt stxs = do
     [syntax| quote-syntax |] -> expandQuoteSyntax stxs
     [syntax| ?stx         |] -> do
       estxs <- traverse expandSyntax stxs
-      pure (fromList (stx : estxs))
+      pure [syntax| (?stx ?estxs ...) |]
 
 -- | TODO: docs
 --

@@ -107,12 +107,10 @@ singleton (Just ph) sc = ScopeInfo ScopeSet.empty (MultiScope.singleton ph sc)
 --
 -- @since 1.0.0
 insert :: Maybe Phase -> Scope -> ScopeInfo -> ScopeInfo
-insert Nothing   sc (ScopeInfo gscps mscps)
-  | ScopeSet.member sc gscps = ScopeInfo gscps mscps
-  | otherwise =
-    let gscps' = ScopeSet.insert sc gscps
-        mscps' = MultiScope.delete Nothing sc mscps
-     in ScopeInfo gscps' mscps'
+insert Nothing   sc (ScopeInfo gscps mscps) =
+  let gscps' = ScopeSet.insert sc gscps
+      mscps' = MultiScope.delete Nothing sc mscps
+   in ScopeInfo gscps' mscps'
 insert (Just ph) sc (ScopeInfo gscps mscps)
   | ScopeSet.member sc gscps = ScopeInfo gscps mscps
   | otherwise = ScopeInfo gscps (MultiScope.insert ph sc mscps)

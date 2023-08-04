@@ -35,7 +35,7 @@ module Opal.Quasi.Reader
     -- * Readers
   , readQExp
   , readQuasiVar
-  , readQuasiExp
+  , readQuasiList
   , readEllipsisClass
   )
 where
@@ -46,7 +46,6 @@ import Control.Lens ((^.))
 
 import Control.Monad (MonadPlus(..))
 
-import Data.Primitive.Array (Array)
 import Data.Primitive.Array qualified as Array
 import Data.List.NonEmpty (NonEmpty)
 import Data.Void (Void)
@@ -55,7 +54,7 @@ import Opal.Common.NonEmpty.TH (nonEmptyString)
 import Opal.Common.Symbol (Symbol)
 import Opal.Common.Symbol qualified as Symbol
 import Opal.Quasi
-import Opal.Syntax (Datum (..), DatumKind (..), Identifier (..), Syntax)
+import Opal.Syntax (Datum (..), Identifier (..), Syntax)
 import Opal.Syntax qualified as Syntax
 import Opal.Reader (runStringReader)
 
@@ -186,7 +185,7 @@ readQExp =
   Parsec.choice
     [ try (fmap QVal readQuasiVal)
     , try (fmap QVar readQuasiVar)
-    , fmap QExp readQuasiExp
+    , fmap QExp readQuasiList
     ]
 
 -- | TODO: docs
@@ -195,7 +194,7 @@ readQExp =
 readQuasiVal :: QuasiReader QuasiVal
 readQuasiVal = do
   Parsec.choice
-    [ fmap QuasiValSymbol readQuasiSymbol
+    [ fmap QuasiValS readQuasiSymbol
     ]
 
 -- | TODO: docs
@@ -218,9 +217,9 @@ readQuasiVar = do
   (var, k) <- case Symbol.symbolTail (idt ^. Syntax.idtSymbol) of
     Nothing -> throwUnexpected (Syntax.identifierToSyntax idt)
     Just s  -> case Symbol.splitSymbol (== ':') s of
-      Nothing -> pure (s, Nothing)
+      Nothing -> pure (s, QuasiClassStx)
       Just (s', k)
-        | k `Symbol.eqSymbol` ":id" -> pure (s', Just DatumKindId)
+        | k `Symbol.eqSymbol` ":id" -> pure (s', QuasiClassId)
         | otherwise                 -> throwUnexpected (Syntax.identifierToSyntax idt)
 
   ellipsis <- readEllipsisClass
@@ -230,18 +229,18 @@ readQuasiVar = do
 -- | TODO: docs
 --
 -- @since 1.0.0
-readQuasiExp :: QuasiReader (Array QExp)
-readQuasiExp = do
+readQuasiList :: QuasiReader QuasiList
+readQuasiList = do
   exps <- syntaxList readQExp
-  pure (Array.fromList exps)
+  pure (QuasiList (Array.fromList exps))
 
 -- | TODO: docs
 --
 -- @since 1.0.0
-readEllipsisClass :: QuasiReader (Maybe EllipsisClass)
+readEllipsisClass :: QuasiReader EllipsisClass
 readEllipsisClass =
   Parsec.choice
-    [ try (Just EllipsisSome <$ identifier "...+")
-    , try (Just EllipsisMany <$ identifier "...")
-    , pure Nothing
+    [ try (EllipsisSome <$ identifier "...+")
+    , try (EllipsisMany <$ identifier "...")
+    , pure EllipsisNone
     ]

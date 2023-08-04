@@ -1,0 +1,169 @@
+cabal-version: 3.4
+
+name:        opal
+category:    Data
+version:     1.0.0
+synopsis:    TODO
+description: TODO
+
+author:       jacob leach
+maintainer:   jacobleach@protonmail.com
+copyright:    2022, Jacob Leach
+homepage:     https://github.com/riz0id/opal
+license:      ISC
+license-file: LICENSE
+build-type:   Simple
+
+extra-source-files:
+  CHANGELOG.md
+  README.md
+
+common common
+  default-language: Haskell2010
+
+  default-extensions:
+    BangPatterns BlockArguments ConstraintKinds DeriveDataTypeable DeriveFunctor
+    DeriveGeneric DeriveLift DerivingStrategies FlexibleContexts
+    ImportQualifiedPost LambdaCase MagicHash MultiWayIf PatternSynonyms
+    RankNTypes ScopedTypeVariables TypeApplications ViewPatterns
+
+  ghc-options:
+    -O2
+    -fsimplifier-phases=20
+
+    -Wall
+    -Wcompat
+    -Wcpp-undef
+    -Widentities
+    -Wmissing-export-lists
+
+    -ddump-to-file
+    -ddump-stg-final
+    -ddump-simpl
+    -dppr-cols=120
+    -dsuppress-module-prefixes
+    -dsuppress-uniques
+
+    -ddump-rules
+    -ddump-rule-firings
+    -ddump-rule-rewrites
+
+    -- Build with `-haddock` to the haskell-language-server feature that
+    -- displays documentation on hover.
+    -haddock
+
+  build-depends:
+    , base
+    , hashable
+
+library
+  import:         common
+  hs-source-dirs: src
+
+  ghc-options:
+    -O2
+
+  build-depends:
+    , bytestring
+    , containers
+    , continuations
+    , data-default
+    , deepseq
+    , ghc-compact
+    , lens
+    , megaparsec
+    , mtl
+    , primitive
+    , stm
+    , template-haskell
+    , text
+    , unordered-containers
+
+  exposed-modules:
+    Opal.Common.BindingStore
+    Opal.Common.MultiScope
+    Opal.Common.NonEmpty
+    Opal.Common.NonEmpty.TH
+    Opal.Common.Phase
+    Opal.Common.Scope
+    Opal.Common.ScopeSet
+    Opal.Common.SrcLoc
+    Opal.Common.Symbol
+    Opal.Common.SymbolStore
+    Opal.Common.TH
+    Opal.Common.Unicode
+    Opal.Evaluator
+    Opal.Evaluator.Monad
+    Opal.Expander
+    Opal.Expander.Monad
+    Opal.Memory.Buffer
+    Opal.Memory.ForeignPtr
+    Opal.Memory.Ptr
+    Opal.Memory.Slice
+    Opal.Module
+    Opal.Parser
+    Opal.Parser.Monad
+    Opal.Quasi
+    Opal.Quasi.Reader
+    Opal.Reader
+    Opal.Reader.Monad
+    Opal.Resolve
+    Opal.Syntax
+    Opal.Syntax.ScopeInfo
+    Opal.Syntax.TH
+    Opal.Writer
+    Opal.Writer.Class
+    Opal.Writer.Doc
+    Opal.Writer.Monad
+
+benchmark opal-bench
+  import:         common
+  hs-source-dirs: bench
+  main-is:        Bench.hs
+  type:           exitcode-stdio-1.0
+
+  ghc-options:
+    -O2
+    -fproc-alignment=64
+    "-with-rtsopts=-A32m"
+
+  build-depends:
+    , async
+    , bytestring
+    , deepseq
+    , opal
+    , stm
+    , tasty
+    , tasty-bench
+    , random
+
+  other-modules:
+
+test-suite opal-test
+  import:         common
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is:        Test.hs
+
+  default-extensions:
+
+  ghc-options:
+    -threaded
+    -rtsopts
+    "-with-rtsopts=-N"
+
+  build-depends:
+    , data-default
+    , hedgehog
+    , megaparsec
+    , opal
+    , tasty
+    , tasty-hedgehog
+    , text
+
+  other-modules:
+    Test.Core
+    Test.Common.Symbol
+    Test.Memory.Buffer
+    Test.Writer
+    Test.Reader

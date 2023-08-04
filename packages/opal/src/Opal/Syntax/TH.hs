@@ -46,7 +46,7 @@ import Opal.Syntax
 
 import Text.Megaparsec (errorBundlePretty)
 import Opal.Quasi.Reader (runQuasiReader, readQExp)
-import Opal.Quasi (liftQExpAsSyntaxListE, liftQExpAsSyntaxE)
+import Opal.Quasi (qexpToSyntaxE)
 
 --------------------------------------------------------------------------------
 
@@ -79,9 +79,9 @@ readSyntaxQ input = do
 -- @since 1.0.0
 readSyntaxExpression :: String -> Q Exp
 readSyntaxExpression input = do
-  loc  <- fmap loc_filename TH.location
-  qexp <- TH.runIO (runQuasiReader loc input readQExp)
-  liftQExpAsSyntaxE qexp
+  file <- fmap loc_filename TH.location
+  qexp <- TH.runIO (runQuasiReader file input readQExp)
+  qexpToSyntaxE qexp
 
 -- | TODO: docs
 --
@@ -90,51 +90,6 @@ readSyntaxPattern :: String -> Q Pat
 readSyntaxPattern input = do
   stx <- readSyntaxQ input
   syntaxToPat stx
-
--- | TODO: docs
---
--- @since 1.0.0
-syntaxToSyntaxExp :: Syntax -> Q Exp
-syntaxToSyntaxExp stx =
-  case syntaxToDatum stx of
-    DatumB val  -> do
-      infoE <- TH.lift defaultSyntaxInfo
-      boolE <- TH.lift val
-      pure (ConE 'Syntax `AppE` (ConE 'DatumB `AppE` boolE) `AppE` infoE)
-    DatumC val  -> do
-      infoE <- TH.lift defaultSyntaxInfo
-      charE <- TH.lift val
-      pure (ConE 'Syntax `AppE` (ConE 'DatumC `AppE` charE) `AppE` infoE)
-    DatumS val  -> do
-      symbolToExp (Identifier val (stx ^. stxInfo))
-    DatumF32 val  -> do
-      infoE <- TH.lift (stx ^. stxInfo)
-      f32E  <- TH.lift val
-      pure (ConE 'Syntax `AppE` (ConE 'DatumF32 `AppE` f32E) `AppE` infoE)
-    DatumI32 val  -> do
-      infoE <- TH.lift defaultSyntaxInfo
-      i32E  <- TH.lift val
-      pure (ConE 'Syntax `AppE` (ConE 'DatumI32 `AppE` i32E) `AppE` infoE)
-    DatumLam val  -> do
-      infoE   <- TH.lift defaultSyntaxInfo
-      lambdaE <- TH.lift val
-      pure (ConE 'Syntax `AppE` (ConE 'DatumLam `AppE` lambdaE) `AppE` infoE)
-    DatumList vals -> do
-      let stxs = map (datumToSyntax (stx ^. stxInfo)) vals
-      syntaxesToSyntaxExp stxs
-    DatumStx stx' ->
-      syntaxToSyntaxExp stx'
-
--- | TODO: docs
---
--- @since 1.0.0
-symbolToExp :: Identifier -> Q Exp
-symbolToExp idt
-  | isBindingSymbol (idt ^. idtSymbol) = identifierToSyntaxVarE idt
-  | otherwise = do
-    symE  <- TH.lift (idt ^. idtSymbol)
-    infoE <- TH.lift (def :: SyntaxInfo)
-    pure (ConE 'Syntax `AppE` (ConE 'DatumS `AppE` symE) `AppE` infoE)
 
 -- | TODO: docs
 --
@@ -300,22 +255,6 @@ someSyntaxesToSyntaxPat stxs = case NonEmpty.nonEmpty stxs of
 -- | TODO: docs
 --
 -- @since 1.0.0
-identifierToSyntaxVarE :: Identifier -> Q Exp
-identifierToSyntaxVarE idt = case symbolTail (idt ^. idtSymbol) of
-  Nothing  -> fail ("the symbol " ++ show idt ++ " can not be used as an expression variable")
-  Just var -> case splitSymbol (':' ==) var of
-    Just (s', k)
-      | k `eqSymbol` ":id" -> do
-        let expVar = VarE (TH.mkName (symbolToString s'))
-        pure (VarE 'identifierToSyntax `AppE` expVar)
-      | otherwise ->
-        fail ("unrecognized annotation: " ++ show idt)
-    _ ->
-      pure (VarE (TH.mkName (symbolToString var)))
-
--- | TODO: docs
---
--- @since 1.0.0
 makePatVariable :: Identifier -> Bool -> Q Pat
 makePatVariable idt isList =
   case symbolTail (idt ^. idtSymbol) of
@@ -342,60 +281,3 @@ makePatVariable idt isList =
 -- @since 1.0.0
 makeSyntaxPat :: Pat -> Pat -> Pat
 makeSyntaxPat patDatum patInfo = ConP 'Syntax [] [patDatum, patInfo]
-
--- | TODO: docs
---
--- @since 1.0.0
-syntaxesToSyntaxExp :: [Syntax] -> Q Exp
-syntaxesToSyntaxExp stxs = case NonEmpty.nonEmpty stxs of
-  Nothing -> do
-    infoE <- TH.lift (def :: SyntaxInfo)
-    listE <- TH.lift ([] :: [Datum])
-    pure (ConE 'Syntax `AppE` (ConE 'DatumList `AppE` listE) `AppE` infoE)
-  Just stxs'
-    | isManyList stxs' -> manySyntaxesToSyntaxExp (NonEmpty.init stxs')
-    | isSomeList stxs' -> undefined -- FIXME: unimplemented
-    | otherwise        -> do
-      infoE <- TH.lift (def :: SyntaxInfo)
-
-      stxsE <- for stxs \stx -> do
-        stxE <- syntaxToSyntaxExp stx
-        pure (ConE 'DatumStx `AppE` stxE)
-
-      let listE = foldr (\x xs -> ConE '(:) `AppE` x `AppE` xs) (ConE '[]) stxsE
-
-      pure (ConE 'Syntax `AppE` (ConE 'DatumList `AppE` listE) `AppE` infoE)
-
--- | TODO: docs
---
--- @since 1.0.0
-manySyntaxesToSyntaxExp :: [Syntax] -> Q Exp
-manySyntaxesToSyntaxExp stxs = case NonEmpty.nonEmpty stxs of
-  Nothing    -> fail ("expected variable pattern before '...' pattern: " ++ show stxs)
-  Just stxs' -> do
-    let stxLast = NonEmpty.last stxs'
-    let infoLast = stxLast ^. stxInfo
-
-    lastE <- case syntaxToDatum stxLast of
-      DatumS s
-        | isWildcardSymbol s -> do
-          let stx = Syntax (DatumList (map DatumStx stxs)) def
-          fail ("wildcards may not be used in syntax expressions: " ++ show stx)
-        | isBindingSymbol s -> do
-          varE  <- identifierToSyntaxVarE (Identifier s infoLast)
-          infoE <- TH.lift (def :: SyntaxInfo)
-          pure (ConE 'Syntax `AppE` (ConE 'DatumList `AppE` (VarE 'map `AppE` ConE 'DatumStx `AppE` varE)) `AppE` infoE)
-      _ -> do
-        let stx = Syntax (DatumList (map DatumStx stxs)) def
-        fail ("expected variable pattern before '...' pattern: " ++ show stx)
-
-    initE <- for (NonEmpty.init stxs') \stx -> do
-      syntaxToSyntaxExp stx
-
-    let stxsE :: Exp
-        stxsE = foldr makeListConPat lastE initE
-
-    pure stxsE
-  where
-    makeListConPat :: Exp -> Exp -> Exp
-    makeListConPat x xs = ConE '(:) `AppE` x `AppE` xs
