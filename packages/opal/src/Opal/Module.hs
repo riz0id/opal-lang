@@ -18,42 +18,35 @@ module Opal.Module
     Module (..)
     -- ** Basic Operations
   , newModule
-    -- ** Lenses
+    -- ** Optics
   , moduleName
   , moduleImports
   , moduleExports
   , moduleNamespace
   , moduleBasePhase
-  , moduleRegistry
   , moduleDefinitions
   , -- * ModuleName
     ModuleName (..)
-  , -- * ModuleRegistry
-    ModuleRegistry (..)
-    -- ** Basic Operations
-  , emptyModuleRegistry
     -- * Namespace
   , Namespace (..)
     -- ** Basic Operations
   , newNamespace
-    -- ** Lenses
+    -- ** Optics
   , namespaceBasePhase
-  , namespaceRegistry
   , namespaceDefinitions
   ) where
 
 import Control.Lens (Lens', lens)
 
-import Data.HashMap.Strict (HashMap)
-import Data.HashMap.Strict qualified as HashMap
-import Data.Map.Strict (Map)
-import Data.Map.Strict qualified as Map
+import Data.Default (Default (..))
 
 import GHC.Generics (Generic)
 
 import Opal.Common.Phase (Phase)
 import Opal.Common.Symbol (Symbol)
-import Opal.Syntax (Syntax)
+import Opal.Writer (Display (..), Doc, (<+>))
+import Opal.Writer qualified as Doc
+import Opal.Syntax.Definition (Definition)
 
 -- Module ----------------------------------------------------------------------
 
@@ -65,12 +58,35 @@ data Module = Module
     -- ^ The name of this module.
   , module_imports   :: [(Phase, Symbol)]
     -- ^ TODO: docs
-  , module_exports   :: Map Phase Symbol
+  , module_exports   :: [(Phase, Symbol)]
     -- ^ TODO: docs
   , module_namespace :: {-# UNPACK #-} !Namespace
     -- ^ The 'Namespace' attached to this module.
   }
-  deriving (Eq, Generic, Ord, Show)
+  deriving (Eq, Generic, Ord)
+
+-- | @since 1.0.0
+instance Display Module where
+  display (Module name imports exports ns) =
+    Doc.hsep
+      [ Doc.string "(module"
+      , display name
+      , (Doc.nest 2 . mappend Doc.line . Doc.vsep)
+          [ Doc.hsep (map (uncurry displayImport) imports)
+          , Doc.hsep (map (uncurry displayExport) exports)
+          , display ns <> Doc.char ')'
+          ]
+      ]
+    where
+      displayImport :: Phase -> Symbol -> Doc
+      displayImport ph s = Doc.hsep [ "(import", display ph, display s <> Doc.char ')' ]
+
+      displayExport :: Phase -> Symbol -> Doc
+      displayExport ph s = Doc.hsep [ "(export", display ph, display s <> Doc.char ')' ]
+
+-- | @since 1.0.0
+instance Show Module where
+  show = Doc.pretty 60 . display
 
 -- Module - Basic Operations ---------------------------------------------------
 
@@ -83,11 +99,11 @@ newModule name ns =
   Module
     { module_name      = name
     , module_imports   = []
-    , module_exports   = Map.empty
+    , module_exports   = []
     , module_namespace = ns
     }
 
--- Module - Lenses -------------------------------------------------------------
+-- Module - Optics -------------------------------------------------------------
 
 -- | Lens focusing on the 'module_name' of a 'Module'.
 --
@@ -103,10 +119,10 @@ moduleImports :: Lens' Module [(Phase, Symbol)]
 moduleImports = lens module_imports \s x -> s { module_imports = x }
 {-# INLINE moduleImports #-}
 
--- | Lens focusing on the 'module_imports' of a 'Module'.
+-- | Lens focusing on the 'module_exports' of a 'Module'.
 --
 -- @since 1.0.0
-moduleExports :: Lens' Module (Map Phase Symbol)
+moduleExports :: Lens' Module [(Phase, Symbol)]
 moduleExports = lens module_exports \s x -> s { module_exports = x }
 {-# INLINE moduleExports #-}
 
@@ -125,19 +141,11 @@ moduleBasePhase :: Lens' Module Phase
 moduleBasePhase = moduleNamespace . namespaceBasePhase
 {-# INLINE moduleBasePhase #-}
 
--- | Composite lens focusing on the @('moduleNamespace' . 'namespaceRegistry')@
--- field of a 'Module'.
---
--- @since 1.0.0
-moduleRegistry :: Lens' Module ModuleRegistry
-moduleRegistry = moduleNamespace . namespaceRegistry
-{-# INLINE moduleRegistry #-}
-
 -- | Composite lens focusing on the @('moduleNamespace' . 'namespaceDefinitions')@
 -- field of a 'Module'.
 --
 -- @since 1.0.0
-moduleDefinitions :: Lens' Module (Map Phase [Syntax])
+moduleDefinitions :: Lens' Module [(Phase, Definition)]
 moduleDefinitions = moduleNamespace . namespaceDefinitions
 {-# INLINE moduleDefinitions #-}
 
@@ -151,24 +159,16 @@ data ModuleName
   -- ^ TODO: docs
   | ModuleTopLevel
   -- ^ TODO: docs
-  deriving (Eq, Generic, Ord, Show)
+  deriving (Eq, Generic, Ord)
 
--- ModuleRegistry --------------------------------------------------------------
+-- | @since 1.0.0
+instance Display ModuleName where
+  display (ModuleName s) = display s
+  display ModuleTopLevel = Doc.string "#%top-level"
 
--- | TODO: docs
---
--- @since 1.0.0
-newtype ModuleRegistry
-  = ModuleRegistry { getModuleRegistry :: HashMap Symbol Module }
-  deriving (Eq, Generic, Ord, Show)
-
--- ModuleRegistry - Basic Operations -------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-emptyModuleRegistry :: ModuleRegistry
-emptyModuleRegistry = ModuleRegistry HashMap.empty
+-- | @since 1.0.0
+instance Show ModuleName where
+  show = Doc.pretty 80 . display
 
 -- Namespace -------------------------------------------------------------------
 
@@ -177,14 +177,33 @@ emptyModuleRegistry = ModuleRegistry HashMap.empty
 -- @since 1.0.0
 data Namespace = Namespace
   { namespace_base_phase  :: {-# UNPACK #-} !Phase
-    -- ^ The namespace's base phase. This is the phase that are used by
+    -- ^ The namespace's base phase. This is the phase that is used by
     -- reflective operations like expansion and evaluation.
-  , namespace_registry    :: ModuleRegistry
-    -- ^ TODO: docs
-  , namespace_definitions :: Map Phase [Syntax]
+  , namespace_definitions :: [(Phase, Definition)]
     -- ^ TODO: docs
   }
-  deriving (Eq, Generic, Ord, Show)
+  deriving (Eq, Generic, Ord)
+
+-- | @since 1.0.0
+instance Default Namespace where
+  def = newNamespace def
+
+-- | @since 1.0.0
+instance Display Namespace where
+  display (Namespace ph defns) =
+    Doc.hsep
+      [ Doc.string "(namespace"
+      , display ph <> if null defns
+          then Doc.char ')'
+          else Doc.nest 2 (Doc.line <> Doc.vsep (map (uncurry displayDefinition) defns) <> Doc.char ')')
+      ]
+    where
+      displayDefinition :: Phase -> Definition -> Doc
+      displayDefinition ph' s = Doc.char '(' <> display ph' <+> display s <> Doc.char ')'
+
+-- | @since 1.0.0
+instance Show Namespace where
+  show = Doc.pretty 80 . display
 
 -- Namespace - Basic Operations ------------------------------------------------
 
@@ -195,11 +214,10 @@ newNamespace :: Phase -> Namespace
 newNamespace ph =
   Namespace
     { namespace_base_phase  = ph
-    , namespace_definitions = Map.empty
-    , namespace_registry    = emptyModuleRegistry
+    , namespace_definitions = def
     }
 
--- Namespace - Lenses ----------------------------------------------------------
+-- Namespace - Optics ----------------------------------------------------------
 
 -- | Lens focusing on the 'namespace_base_phase' of a 'Module'.
 --
@@ -208,16 +226,9 @@ namespaceBasePhase :: Lens' Namespace Phase
 namespaceBasePhase = lens namespace_base_phase \s x -> s { namespace_base_phase = x }
 {-# INLINE namespaceBasePhase #-}
 
--- | Lens focusing on the 'module_name' of a 'Module'.
---
--- @since 1.0.0
-namespaceRegistry :: Lens' Namespace ModuleRegistry
-namespaceRegistry = lens namespace_registry \s x -> s { namespace_registry = x }
-{-# INLINE namespaceRegistry #-}
-
 -- | Lens focusing on the 'namespace_definitions' of a 'Module'.
 --
 -- @since 1.0.0
-namespaceDefinitions :: Lens' Namespace (Map Phase [Syntax])
+namespaceDefinitions :: Lens' Namespace [(Phase, Definition)]
 namespaceDefinitions = lens namespace_definitions \s x -> s { namespace_definitions = x }
 {-# INLINE namespaceDefinitions #-}

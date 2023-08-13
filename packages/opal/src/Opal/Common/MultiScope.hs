@@ -61,6 +61,8 @@ import Opal.Common.Phase (Phase (..))
 import Opal.Common.Scope (Scope (..))
 import Opal.Common.ScopeSet (ScopeSet)
 import Opal.Common.ScopeSet qualified as ScopeSet
+import Opal.Writer.Class (Display (..))
+import Opal.Writer.Doc qualified as Doc
 
 import Prelude hiding (lookup, map, null)
 
@@ -73,10 +75,14 @@ newtype MultiScope = MultiScope (Map Phase ScopeSet)
   deriving newtype (Eq, Ord, Show)
   deriving (Generic, Lift)
 
--- | @since 1.0.0
+-- | 'MultiScope' is indexed by 'Phase'.
+--
+-- @since 1.0.0
 type instance Index MultiScope = Phase
 
--- | @since 1.0.0
+-- | 'MultiScope' indexes 'ScopeSet'.
+--
+-- @since 1.0.0
 type instance IxValue MultiScope = ScopeSet
 
 -- | 'MultiScope' defaults to 'empty'.
@@ -84,6 +90,10 @@ type instance IxValue MultiScope = ScopeSet
 -- @since 1.0.0
 instance Default MultiScope where
   def = empty
+
+-- | @since 1.0.0
+instance Display MultiScope where
+  display = Doc.string . show
 
 -- | @since 1.0.0
 instance Ixed MultiScope where

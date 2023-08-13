@@ -85,8 +85,8 @@ import Language.Haskell.TH (Pat(..))
 import Language.Haskell.TH.Syntax (Lift)
 
 import Opal.Common.TH (Pattern (..))
-import Opal.Writer.Class (Display(..))
-import Opal.Writer.Doc qualified as Doc (group, hsep, string)
+import Opal.Writer (Display(..), (<+>))
+import Opal.Writer qualified as Doc
 
 -- Phase -----------------------------------------------------------------------
 
@@ -107,7 +107,7 @@ instance Default Phase where
 
 -- | @since 1.0.0
 instance Display Phase where
-  display (Phase ph) = Doc.group (Doc.hsep [Doc.string "phase", display ph])
+  display (Phase ph) = Doc.group (Doc.string "(#%phase" <+> display ph <> Doc.char ')')
 
 -- | @since 1.0.0
 instance Pattern Phase where

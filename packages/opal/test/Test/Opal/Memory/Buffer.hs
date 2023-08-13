@@ -1,7 +1,7 @@
 {-# OPTIONS_HADDOCK show-extensions #-}
 
 -- |
--- Module      :  Test.Memory.Buffer
+-- Module      :  Test.Opal.Memory.Buffer
 -- Copyright   :  (c) Jacob Leach, 2023
 -- License     :  ISC, see LICENSE
 --
@@ -10,13 +10,16 @@
 -- Portability :  non-portable (GHC extensions)
 --
 -- TODO: docs
-module Test.Memory.Buffer (testTree) where
+module Test.Opal.Memory.Buffer
+  ( testTree
+  )
+where
 
 import Hedgehog (assert, evalIO, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 
-import Opal.Memory.Buffer 
+import Opal.Memory.Buffer
   ( bufferEq
   , newBuffer
   , packBuffer
@@ -28,14 +31,14 @@ import Test.Core (TestTree, testCase, testGroup)
 --------------------------------------------------------------------------------
 
 testTree :: TestTree
-testTree = 
+testTree =
   testGroup "buffer"
-    [ testCase "bufferEq" do 
+    [ testCase "bufferEq" do
         len <- forAll $ Gen.integral $ Range.linear 0 100
         buf <- evalIO $ newBuffer len
         ret <- evalIO $ bufferEq buf buf
         assert ret
-    , testCase "packBuffer/unpackBuffer" do 
+    , testCase "packBuffer/unpackBuffer" do
         xs  <- forAll $ Gen.list (Range.linear 0 100) (Gen.word8 Range.constantBounded)
         buf <- evalIO $ packBuffer xs
         ys  <- evalIO $ unpackBuffer buf

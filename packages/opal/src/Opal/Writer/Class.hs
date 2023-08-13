@@ -21,7 +21,7 @@ where
 import Opal.Writer.Doc (Doc)
 import Opal.Writer.Doc qualified as Doc
 
-import Data.Word (Word32)
+import Data.Word (Word8, Word16, Word32)
 
 -- Display ---------------------------------------------------------------------
 
@@ -68,6 +68,14 @@ instance Display Int where
 -- | @since 1.0.0
 instance Display Word where
   display = Doc.word
+
+-- | @since 1.0.0
+instance Display Word8 where
+  display = Doc.word . fromIntegral
+
+-- | @since 1.0.0
+instance Display Word16 where
+  display = Doc.word . fromIntegral
 
 -- | @since 1.0.0
 instance Display Word32 where

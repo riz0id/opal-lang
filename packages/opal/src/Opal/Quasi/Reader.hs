@@ -24,6 +24,7 @@ module Opal.Quasi.Reader
   )
 where
 
+import Data.Functor (void)
 import Data.Primitive.Array qualified as Array
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -63,7 +64,28 @@ runQuasiReader input = do
 --
 -- @since 1.0.0
 readQExp :: Reader QExp
-readQExp = space *> choice [try readQuasiVar, readQuasiList] <* space
+readQExp = do
+  space
+  qexp <- choice
+    [ try readQuasiBool
+    , readQuasiVar
+    , readQuasiList
+    ]
+  qexp <$ space
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+readQuasiBool :: Reader QExp
+readQuasiBool = do
+  void (single '#')
+  readDatumTrue <|> readDatumFalse
+  where
+    readDatumTrue :: Reader QExp
+    readDatumTrue = QVal (QuasiValB True) <$ choice [single 't', single 'T']
+
+    readDatumFalse :: Reader QExp
+    readDatumFalse = QVal (QuasiValB False) <$ choice [single 'f', single 'F']
 
 -- | TODO: docs
 --
@@ -80,8 +102,12 @@ readQuasiVar = do
       Just s' -> case splitSymbol (== ':') s' of
         Nothing -> pure (QVar (QuasiVar s' QuasiClassStx ellipsis))
         Just (var, k)
-          | k `eqSymbol` ":id" -> pure (QVar (QuasiVar var QuasiClassId ellipsis))
-          | otherwise          -> customFailure (ReaderError ("invalid quasi-variable class: " ++ symbolToString k))
+          | k `eqSymbol` ":id" ->
+            pure (QVar (QuasiVar var QuasiClassId ellipsis))
+          | k `eqSymbol` ":bool" ->
+            pure (QVar (QuasiVar var QuasiClassBool ellipsis))
+          | otherwise          ->
+            customFailure (ReaderError ("invalid quasi-variable class: " ++ symbolToString k))
     else pure (QVal (QuasiValS s))
 
 -- | TODO: docs

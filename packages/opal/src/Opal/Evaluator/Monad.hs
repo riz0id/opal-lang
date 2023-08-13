@@ -47,12 +47,12 @@ import Data.Function ((&))
 
 import GHC.Generics (Generic)
 
-import Opal.Common.BindingStore (BindingStore)
+import Opal.Binding.BindingStore (BindingStore)
 import Opal.Common.Phase (Phase)
 import Opal.Common.Scope (MonadScope (..), Scope)
 import Opal.Common.ScopeSet (ScopeSet)
 import Opal.Common.Symbol (MonadGenSym (..), Symbol)
-import Opal.Syntax (Transformer)
+import Opal.Syntax.Transformer (Transformer)
 
 -- Eval ------------------------------------------------------------------------
 

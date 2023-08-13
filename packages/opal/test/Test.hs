@@ -12,23 +12,10 @@
 -- TODO: docs
 module Main (main) where
 
-import Test.Tasty (TestTree, defaultMain, testGroup)
-
-import Test.Common.Symbol qualified
-import Test.Memory.Buffer qualified
-import Test.Reader qualified
-import Test.Writer qualified
+import Test.Opal qualified
+import Test.Tasty (defaultMain)
 
 --------------------------------------------------------------------------------
 
 main :: IO ()
-main = defaultMain testTree
-
-testTree :: TestTree
-testTree =
-  testGroup "opal"
-    [ Test.Common.Symbol.testTree
-    , Test.Memory.Buffer.testTree
-    , Test.Reader.testTree
-    , Test.Writer.testTree
-    ]
+main = defaultMain Test.Opal.testTree

@@ -42,6 +42,8 @@ import Language.Haskell.TH (Pat(..))
 import Language.Haskell.TH.Syntax (Lift)
 
 import Opal.Common.TH (Pattern (..))
+import Opal.Writer (Display (..))
+import qualified Opal.Writer.Doc as Doc
 
 --------------------------------------------------------------------------------
 
@@ -65,6 +67,10 @@ data SrcLoc = SrcLoc
 -- @since 1.0.0
 instance Default SrcLoc where
   def = defaultSrcLoc
+
+-- | @since 1.0.0
+instance Display SrcLoc where
+  display (SrcLoc posn line coln) = display posn <> Doc.char ':' <> display line <> Doc.char ':' <> display coln
 
 -- | @since 1.0.0
 instance NFData SrcLoc

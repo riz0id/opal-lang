@@ -36,6 +36,7 @@ import Control.Monad (MonadPlus)
 import Data.Default (Default (..))
 import Data.Text (Text)
 
+import Opal.Common.SourceInfo (SourceInfo (..))
 import Opal.Common.SrcLoc (SrcLoc (..))
 import Opal.Syntax (SyntaxInfo (..))
 
@@ -74,12 +75,14 @@ newtype Reader a = Reader
 -- @since 1.0.0
 readerSyntaxInfo :: Reader SyntaxInfo
 readerSyntaxInfo = do
-  filepath <- readerFilePath
-  srcloc   <- readerSrcLoc
-  pure def
-    { stx_info_source = Just filepath
-    , stx_info_srcloc = Just srcloc
-    }
+  srcInfo <- readerSourceInfo
+  pure def { stx_info_source = Just srcInfo }
+
+-- | Obtain the the Reader's current source information as a 'SourceInfo'.
+--
+-- @since 1.0.0
+readerSourceInfo :: Reader SourceInfo
+readerSourceInfo = liftA2 SourceInfo readerFilePath readerSrcLoc
 
 -- | Obtain the source 'FilePath' the reader is currently processing.
 --

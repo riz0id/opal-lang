@@ -1,7 +1,7 @@
 {-# OPTIONS_HADDOCK show-extensions #-}
 
 -- |
--- Module      :  Test.Common.Symbol
+-- Module      :  Test.Opal.Common.Symbol
 -- Copyright   :  (c) Jacob Leach, 2023
 -- License     :  ISC, see LICENSE
 --
@@ -10,7 +10,10 @@
 -- Portability :  non-portable (GHC extensions)
 --
 -- TODO: docs
-module Test.Common.Symbol (testTree) where
+module Test.Opal.Common.Symbol
+  ( testTree
+  )
+where
 
 import Control.Exception (evaluate)
 
@@ -22,6 +25,7 @@ import Opal.Common.Symbol
   ( stringToSymbol
   , symbolToString
   , symbolHead
+  , symbolTail
   )
 
 import Test.Core (TestTree, testCase, testGroup)
@@ -40,4 +44,8 @@ testTree =
         str <- forAll $ Gen.string (Range.linear 1 10) Gen.unicode
         sym <- evalIO $ evaluate $ stringToSymbol str
         head str === symbolHead sym
+    , testCase "symbolTail" do
+        str <- forAll $ Gen.string (Range.linear 1 10) Gen.unicode
+        sym <- evalIO $ evaluate $ stringToSymbol str
+        Just (tail str) === fmap symbolToString (symbolTail sym)
     ]

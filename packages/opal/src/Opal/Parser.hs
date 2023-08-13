@@ -29,16 +29,22 @@ module Opal.Parser
     -- ** Lenses
   , parseBindingStore
   , parseCurrentPhase
+    -- * ParseError
+  , ParseError (..)
+    -- * CoreParseError
+  , CoreParseError (..)
   )
 where
 
 import Control.Lens (view, (^.))
 
+import Control.Monad.Except (MonadError(..))
+
 import Data.List.NonEmpty (NonEmpty (..))
 
 import Opal.Common.Symbol
 import Opal.Parser.Monad
-import Opal.Resolve (resolve)
+import Opal.Resolve (ResolveError (..), resolve)
 import Opal.Syntax
 import Opal.Syntax.TH (syntax)
 
@@ -61,12 +67,8 @@ parseSyntax stx@[syntax| () |] = do
 parseSyntax stx@[syntax| (?fun:id ?stxs ...) |] = do
   fun' <- parseIdentifier fun
   if| fun' `eqSymbol` "lambda" -> case [syntax| (?stxs ...) |] of
-      [syntax| ((?args:id ...) ?body ...+) |] -> do
-        args' <- traverse parseIdentifier args
-        body' <- traverse parseSyntax body
-        pure (SVal (DatumLam (Lambda args' body')))
-      _ -> do
-        throwLambdaParseError stx
+      [syntax| ((?args:id ...) ?body) |] -> parseLambda args body
+      _                                  -> throwLambdaParseError stx
     | fun' `eqSymbol` "quote" -> case [syntax| (?stxs ...) |] of
         [syntax| (?arg) |] -> pure (SVal (syntaxToDatum arg))
         _                  -> throwQuoteSyntaxParseError stx
@@ -74,8 +76,12 @@ parseSyntax stx@[syntax| (?fun:id ?stxs ...) |] = do
       [syntax| (?arg) |] -> pure (SVal (DatumStx arg))
       _                  -> throwQuoteSyntaxParseError stx
     | otherwise -> do
+      idt'  <- parseIdentifier fun
       stxs' <- traverse parseSyntax stxs
-      pure (SApp (SVar (fun ^. idtSymbol) :| stxs'))
+      pure (SApp (SVar idt' :| stxs'))
+parseSyntax [syntax| (?stxs ...+) |] = do
+  stxs' <- traverse parseSyntax stxs
+  pure (SApp stxs')
 parseSyntax [syntax| ?idt:id |] = do
   s <- parseIdentifier idt
   pure (SVar s)
@@ -85,10 +91,21 @@ parseSyntax [syntax| ?stx |] = do
 -- | TODO: docs
 --
 -- @since 1.0.0
+parseLambda :: [Identifier] -> Syntax -> Parse SExp
+parseLambda args body = do
+  args' <- traverse parseIdentifier args
+  body' <- parseSyntax body
+  pure (SVal (DatumLam (Lambda args' body')))
+
+-- | TODO: docs
+--
+-- @since 1.0.0
 parseIdentifier :: Identifier -> Parse Symbol
 parseIdentifier idt = do
   phase <- view parseCurrentPhase
   store <- view parseBindingStore
   case resolve phase idt store of
-    Nothing -> pure (idt ^. idtSymbol)
-    Just s  -> pure s
+    Left  exn     -> case exn of
+      ResolveErrorAmbiguous x   -> throwError (ParseErrorAmbiguous x)
+      ResolveErrorNotInScope {} -> pure (idt ^. idtSymbol)
+    Right gensym  -> pure gensym

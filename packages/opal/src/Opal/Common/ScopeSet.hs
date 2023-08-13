@@ -25,7 +25,9 @@ module Opal.Common.ScopeSet
     -- ** Query
   , member
   , null
+  , notNull
   , size
+  , intersects
     -- ** Set Operations
   , isSubsetOf
   , difference
@@ -46,6 +48,7 @@ import GHC.Generics (Generic)
 import Language.Haskell.TH.Syntax (Lift)
 
 import Opal.Common.Scope (Scope (..))
+import Opal.Writer.Class (Display (..))
 
 import Prelude hiding (null)
 
@@ -63,6 +66,10 @@ newtype ScopeSet = ScopeSet (Set Scope)
 -- @since 1.0.0
 instance Default ScopeSet where
   def = empty
+
+-- | @since 1.0.0
+instance Display ScopeSet where
+  display (ScopeSet scps) = display (Set.toList scps)
 
 -- | @since 1.0.0
 instance Monoid ScopeSet where
@@ -118,11 +125,23 @@ member = coerce Set.member
 null :: ScopeSet -> Bool
 null = coerce Set.null
 
+-- | Is the given 'ScopeSet' non-empty?
+--
+-- @since 1.0.0
+notNull :: ScopeSet -> Bool
+notNull = not . null
+
 -- | Obtain the size of the given 'ScopeSet'.
 --
 -- @since 1.0.0
 size :: ScopeSet -> Int
 size = coerce Set.size
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+intersects :: ScopeSet -> ScopeSet -> Bool
+intersects a b = notNull (a `intersection` b)
 
 -- ScopeSet - Set Operations ---------------------------------------------------
 
@@ -130,7 +149,7 @@ size = coerce Set.size
 --
 -- @since 1.0.0
 isSubsetOf :: ScopeSet -> ScopeSet -> Bool
-isSubsetOf = coerce isSubsetOf
+isSubsetOf = coerce Set.isSubsetOf
 
 infixl 9 `difference`
 

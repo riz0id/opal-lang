@@ -33,7 +33,7 @@ import Test.Tasty.Hedgehog (testPropertyNamed)
 
 --------------------------------------------------------------------------------
 
--- | TODO: docs
+-- | Create a test case with 100 trials.
 testCase :: TestName -> PropertyT IO () -> TestTree
 testCase name = testPropertyNamed name (PropertyName name) . property
 

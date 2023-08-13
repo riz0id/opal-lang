@@ -80,11 +80,8 @@ module Opal.Syntax
   , defaultSyntaxInfo
     -- ** Optics
   , stxInfoSource
-  , stxInfoSrcLoc
-  , stxInfoProperties
   , stxInfoScopes
-    -- * Transformer
-  , Transformer (..)
+  , stxInfoProperties
   )
 where
 
@@ -96,7 +93,6 @@ import Data.Default (Default (..))
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.Int (Int32)
-import Data.IORef (IORef, readIORef)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 
@@ -108,23 +104,14 @@ import Language.Haskell.TH.Syntax (Lift)
 import Opal.Common.Phase (Phase)
 import Opal.Common.Scope (Scope)
 import Opal.Common.ScopeSet (ScopeSet)
-import Opal.Common.SrcLoc (SrcLoc (..))
+import Opal.Common.SourceInfo (SourceInfo)
 import Opal.Common.Symbol (Symbol, stringToSymbol, symbolToString)
-import Opal.Writer.Class (Display(..))
-import Opal.Writer.Doc qualified as Doc
+import Opal.Writer (Display(..))
+import Opal.Writer qualified as Doc
 import Opal.Syntax.ScopeInfo (ScopeInfo)
 import Opal.Syntax.ScopeInfo qualified as ScopeInfo
 
-import System.IO.Unsafe (unsafePerformIO)
-
---------------------------------------------------------------------------------
-
-showSExp :: Show a => [a] -> ShowS
-showSExp []       = showString "()"
-showSExp (x : xs) = showChar '(' . shows x . run xs
-  where
-    run []       = showChar ')'
-    run (y : ys) = showChar ' ' . shows y . run ys
+import Prelude hiding (id)
 
 -- Value -----------------------------------------------------------------------
 
@@ -160,12 +147,7 @@ instance NFData Value
 
 -- | @since 1.0.0
 instance Show Value where
-  showsPrec _ (ValueB    x) = if x then showString "#t" else showString "#f"
-  showsPrec _ (ValueC    x) = showString "#\\" . showChar x
-  showsPrec p (ValueS    x) = showsPrec p x
-  showsPrec p (ValueF32  x) = showsPrec p x
-  showsPrec p (ValueI32  x) = showsPrec p x
-  showsPrec p (ValueLam  x) = showsPrec p x
+  show = Doc.pretty 80 . display
 
 -- Datum - Optics --------------------------------------------------------------
 
@@ -279,12 +261,7 @@ instance NFData Datum
 
 -- | @since 1.0.0
 instance Show Datum where
-  showsPrec p (DatumVal    x) = showsPrec p x
-  showsPrec p (DatumLam  x) = showsPrec p x
-  showsPrec _ (DatumList x) = showList x
-  showsPrec p (DatumStx  x) = showsPrec p x
-
-  showList xs = showChar '\'' . showSExp xs
+  show = Doc.pretty 80 . display
 
 -- Datum - Optics --------------------------------------------------------------
 
@@ -317,7 +294,6 @@ datumChar = datumValue . valueChar
 -- @since 1.0.0
 datumSymbol :: Prism' Datum Symbol
 datumSymbol = datumValue . valueSymbol
-{-# INLINE datumSymbol #-}
 
 -- | Compound prism focusing on the @('datumValue' . 'valueF32')@ constructor
 -- of 'Datum'.
@@ -325,7 +301,6 @@ datumSymbol = datumValue . valueSymbol
 -- @since 1.0.0
 datumF32 :: Prism' Datum Float
 datumF32 = datumValue . valueF32
-{-# INLINE datumF32 #-}
 
 -- | Compound prism focusing on the @('datumValue' . 'valueI32')@ constructor
 -- of 'Datum'.
@@ -333,28 +308,24 @@ datumF32 = datumValue . valueF32
 -- @since 1.0.0
 datumI32 :: Prism' Datum Int32
 datumI32 = datumValue . valueI32
-{-# INLINE datumI32 #-}
 
 -- | Prism focusing on the 'DatumLam' constructor of 'Datum'.
 --
 -- @since 1.0.0
 datumLambda :: Prism' Datum Lambda
 datumLambda = prism' DatumLam \case { DatumLam x -> Just x; _ -> Nothing }
-{-# INLINE datumLambda #-}
 
 -- | Prism focusing on the 'DatumList' constructor of 'Datum'.
 --
 -- @since 1.0.0
 datumList :: Prism' Datum [Datum]
 datumList = prism' DatumList \case { DatumList x -> Just x; _ -> Nothing }
-{-# INLINE datumList #-}
 
 -- | Prism focusing on the 'DatumStx' constructor of 'Datum'.
 --
 -- @since 1.0.0
 datumSyntax :: Prism' Datum Syntax
 datumSyntax = prism' DatumStx \case { DatumStx x -> Just x; _ -> Nothing }
-{-# INLINE datumSyntax #-}
 
 -- Lambda ----------------------------------------------------------------------
 
@@ -364,7 +335,7 @@ datumSyntax = prism' DatumStx \case { DatumStx x -> Just x; _ -> Nothing }
 data Lambda = Lambda
   { lambda_args :: [Symbol]
     -- ^ The arguments of the function.
-  , lambda_body :: {-# UNPACK #-} !(NonEmpty SExp)
+  , lambda_body :: {-# UNPACK #-} !SExp
     -- ^ The body s-expressions of the function.
   }
   deriving (Eq, Generic, Lift, Ord)
@@ -374,7 +345,7 @@ instance Display Lambda where
   display (Lambda args body) =
     Doc.vsep
       [ Doc.string "(lambda (" <> Doc.sepMap (Doc.string . symbolToString) (Doc.char ' ') (toList args) <> Doc.string ")"
-      , Doc.nest 2 (displayList (NonEmpty.toList body) <> Doc.char ')')
+      , Doc.nest 2 (display body <> Doc.char ')')
       ]
 
 -- | @since 1.0.0
@@ -382,16 +353,7 @@ instance NFData Lambda
 
 -- | @since 1.0.0
 instance Show Lambda where
-  showsPrec p (Lambda args (x :| xs)) =
-    showString "(lambda "
-      . showSExp args
-      . showChar ' '
-      . showsPrec p x
-      . showBody xs
-    where
-      showBody :: [SExp] -> ShowS
-      showBody []       = showChar ')'
-      showBody (y : ys) = showChar ' ' . showsPrec p y . showBody ys
+  show = Doc.pretty 80 . display
 
 -- Lambda - Optics -------------------------------------------------------------
 
@@ -400,14 +362,12 @@ instance Show Lambda where
 -- @since 1.0.0
 lambdaArgs :: Lens' Lambda [Symbol]
 lambdaArgs = lens lambda_args \s x -> s { lambda_args = x }
-{-# INLINE lambdaArgs #-}
 
 -- | Lens focusing on the 'lambda_body' field of 'Lambda'.
 --
 -- @since 1.0.0
-lambdaBody :: Lens' Lambda (NonEmpty SExp)
+lambdaBody :: Lens' Lambda SExp
 lambdaBody = lens lambda_body \s x -> s { lambda_body = x }
-{-# INLINE lambdaBody #-}
 
 -- Lambda - Query --------------------------------------------------------------
 
@@ -460,11 +420,7 @@ instance NFData SExp
 
 -- | @since 1.0.0
 instance Show SExp where
-  showsPrec p (SVal val) = showsPrec p val
-  showsPrec p (SVar var) = showsPrec p var
-  showsPrec _ (SApp exs) = showList (NonEmpty.toList exs)
-
-  showList = showSExp
+  show = Doc.pretty 80 . display
 
 -- Identifier ------------------------------------------------------------------
 
@@ -487,7 +443,7 @@ instance Display Identifier where
 
 -- | @since 1.0.0
 instance Show Identifier where
-  showsPrec p (Identifier s _) = showString "#" . showsPrec p s
+  show = Doc.pretty 80 . display
 
 -- Identifier - Basic Operations -----------------------------------------------
 
@@ -512,14 +468,12 @@ identifierScope ph sc = over idtScopes (ScopeInfo.insert ph sc)
 -- @since 1.0.0
 idtSymbol :: Lens' Identifier Symbol
 idtSymbol = lens idt_symbol \s x -> s { idt_symbol = x }
-{-# INLINE idtSymbol #-}
 
 -- | Lens focusing on the 'idt_info' field of 'Identifier'.
 --
 -- @since 1.0.0
 idtInfo :: Lens' Identifier SyntaxInfo
 idtInfo = lens idt_info \s x -> s { idt_info = x }
-{-# INLINE idtInfo #-}
 
 -- | Compound lens focusing on @('idtInfo' . 'stxInfoScopes')@ field of an
 -- 'Identifier'.
@@ -527,7 +481,6 @@ idtInfo = lens idt_info \s x -> s { idt_info = x }
 -- @since 1.0.0
 idtScopes :: Lens' Identifier ScopeInfo
 idtScopes = idtInfo . stxInfoScopes
-{-# INLINE idtScopes #-}
 
 -- Syntax ----------------------------------------------------------------------
 
@@ -601,11 +554,7 @@ instance NFData Syntax
 
 -- | @since 1.0.0
 instance Show Syntax where
-  showsPrec p (SyntaxS    s    _) = showChar '#' . showsPrec p s
-  showsPrec p (SyntaxVal  val  _) = showsPrec p val
-  showsPrec _ (SyntaxList stxs _) = showList stxs
-
-  showList xs = showString "#'" . showSExp xs
+  show = Doc.pretty 80 . display
 
 -- Syntax - Basic Operations ---------------------------------------------------
 
@@ -632,14 +581,8 @@ datumToSyntax _    (DatumStx  stx)  = stx
 --
 -- @since 1.0.0
 syntaxToDatum :: Syntax -> Datum
-syntaxToDatum stx = case stx ^. syntaxDatum of
-  DatumStx  v   -> syntaxToDatum v
-  DatumList vxs -> DatumList (map stripSyntax vxs)
-  datum         -> datum
-  where
-    stripSyntax :: Datum -> Datum
-    stripSyntax (DatumStx v) = syntaxToDatum v
-    stripSyntax datum        = datum
+syntaxToDatum (SyntaxVal  val  _) = DatumVal val
+syntaxToDatum (SyntaxList stxs _) = DatumList (map syntaxToDatum stxs)
 
 -- Syntax - Scope Operations ---------------------------------------------------
 
@@ -743,7 +686,18 @@ syntaxId = prism' identifierToSyntax \case
 --
 -- @since 1.0.0
 syntaxList :: Prism' Syntax [Syntax]
-syntaxList = prism' (\x -> SyntaxList x def) \case { SyntaxList stxs _ -> Just stxs ; _ -> Nothing }
+syntaxList = prism' construct deconstruct
+  where
+    construct :: [Syntax] -> Syntax
+    construct []           = SyntaxList [] def
+    construct (stx : stxs) =
+      let info :: SyntaxInfo
+          info = def { stx_info_source = stx ^. syntaxInfo ^. stxInfoSource }
+       in SyntaxList (stx : stxs) info
+
+    deconstruct :: Syntax -> Maybe [Syntax]
+    deconstruct (SyntaxList stxs _) = Just stxs
+    deconstruct _                   = Nothing
 
 -- SyntaxInfo ------------------------------------------------------------------
 
@@ -752,12 +706,8 @@ syntaxList = prism' (\x -> SyntaxList x def) \case { SyntaxList stxs _ -> Just s
 --
 -- @since 1.0.0
 data SyntaxInfo = SyntaxInfo
-  { stx_info_source :: Maybe FilePath
-    -- ^ An optional path to the source file that the associated syntax object
-    -- originated from.
-  , stx_info_srcloc :: Maybe SrcLoc
-    -- ^ An optional source location that the associated syntax object
-    -- originated from.
+  { stx_info_source :: Maybe SourceInfo
+    -- ^ TODO: docs
   , stx_info_scopes :: {-# UNPACK #-} !ScopeInfo
     -- ^ The set of phase-specific scopes and global scopes that are attached to
     -- the syntax object associated with the 'SyntaxInfo'.
@@ -788,74 +738,24 @@ instance NFData SyntaxInfo
 --
 -- @since 1.0.0
 defaultSyntaxInfo :: SyntaxInfo
-defaultSyntaxInfo = SyntaxInfo def def def HashMap.empty
+defaultSyntaxInfo = SyntaxInfo def def HashMap.empty
 
 -- SyntaxInfo - Optics ---------------------------------------------------------
 
 -- | Lens focusing on the 'stx_info_properties' field of 'SyntaxInfo'.
 --
 -- @since 1.0.0
-stxInfoSource :: Lens' SyntaxInfo (Maybe FilePath)
+stxInfoSource :: Lens' SyntaxInfo (Maybe SourceInfo)
 stxInfoSource = lens stx_info_source \s x -> s { stx_info_source = x }
-{-# INLINE stxInfoSource #-}
-
--- | Lens focusing on the 'stx_info_srcloc' field of 'SyntaxInfo'.
---
--- @since 1.0.0
-stxInfoSrcLoc :: Lens' SyntaxInfo (Maybe SrcLoc)
-stxInfoSrcLoc = lens stx_info_srcloc \s x -> s { stx_info_srcloc = x }
-{-# INLINE stxInfoSrcLoc #-}
-
--- | Lens focusing on the 'stx_info_properties' field of 'SyntaxInfo'.
---
--- @since 1.0.0
-stxInfoProperties :: Lens' SyntaxInfo (HashMap Symbol Syntax)
-stxInfoProperties = lens stx_info_properties \s x -> s { stx_info_properties = x }
-{-# INLINE stxInfoProperties #-}
 
 -- | Lens focusing on the 'stx_info_srcloc' field of 'SyntaxInfo'.
 --
 -- @since 1.0.0
 stxInfoScopes :: Lens' SyntaxInfo ScopeInfo
 stxInfoScopes = lens stx_info_scopes \s x -> s { stx_info_scopes = x }
-{-# INLINE stxInfoScopes #-}
 
--- Transformer -----------------------------------------------------------------
-
--- | 'Transformer' is the type used to represent compile-time "meanings".
+-- | Lens focusing on the 'stx_info_properties' field of 'SyntaxInfo'.
 --
 -- @since 1.0.0
-data Transformer
-  = TransformerLambda
-    -- ^ 'TransformerLambda' is used to represent the core syntactic form for
-    -- @lambda@.
-  | TransformerLetSyntax
-    -- ^ 'TransformerLambda' is used to represent the core syntactic form for
-    -- @let-syntax@.
-  | TransformerQuote
-    -- ^ 'TransformerLambda' is used to represent the core syntactic form for
-    -- @quote@.
-  | TransformerQuoteSyntax
-    -- ^ 'TransformerLambda' is used to represent the core syntactic form for
-    -- @quote-syntax@.
-  | TransformerVar {-# UNPACK #-} !Identifier
-    -- ^ 'TransformerVar' is a reference to a function argument.
-  | TransformerVal (IORef Datum)
-    -- ^ 'TransformerVal' is a compile-time value. In the special case that the
-    -- compile-time value is a function, then that function is a macro
-    -- transformer.
-
--- | @since 1.0.0
-instance Show Transformer where
-  showsPrec _ TransformerLambda       = showString "#<transformer-lambda>"
-  showsPrec _ TransformerLetSyntax    = showString "#<transformer-let-syntax>"
-  showsPrec _ TransformerQuote        = showString "#<transformer-quote>"
-  showsPrec _ TransformerQuoteSyntax  = showString "#<transformer-quote-syntax>"
-  showsPrec p (TransformerVar var)    =
-    showString "#<transformer-var "
-      . showsPrec p var
-      . showChar '>'
-  showsPrec p (TransformerVal datum)  =
-    showString "#<transformer-val "
-      . showsPrec p (unsafePerformIO (readIORef datum))
-      . showChar '>'
+stxInfoProperties :: Lens' SyntaxInfo (HashMap Symbol Syntax)
+stxInfoProperties = lens stx_info_properties \s x -> s { stx_info_properties = x }

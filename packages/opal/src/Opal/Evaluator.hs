@@ -32,7 +32,7 @@ module Opal.Evaluator
   )
 where
 
-import Control.Lens (set, use, view)
+import Control.Lens (set, view)
 
 import Control.Monad (unless)
 import Control.Monad.IO.Class (MonadIO (..))
@@ -50,8 +50,6 @@ import Opal.Evaluator.Monad
   ( Eval (..)
   , EvalConfig (..)
   , EvalState (..)
-  , evalBindingStore
-  , evalCurrentPhase
   , evalEnvironment
   , runEval
   )
@@ -59,9 +57,9 @@ import Opal.Syntax
   ( Datum (..)
   , Lambda (..)
   , SExp (..)
-  , Transformer (..), lambdaArity
+  , lambdaArity
   )
-import Opal.Resolve (resolve)
+import Opal.Syntax.Transformer
 
 -- Eval - Evaluate -------------------------------------------------------------
 
@@ -96,7 +94,7 @@ evalSApp lam@(Lambda args body) sexps = do
   env  <- view evalEnvironment
   env' <- foldr insertEnvironment (pure env) (zip args sexps)
 
-  local (set evalEnvironment env') (evalSExpBody body)
+  local (set evalEnvironment env') (evalSExp body)
   where
     insertEnvironment ::
       (Symbol, SExp) ->
@@ -104,7 +102,7 @@ evalSApp lam@(Lambda args body) sexps = do
       Eval (HashMap Symbol Transformer)
     insertEnvironment (arg, sexp) next = do
       val <- evalSExp sexp
-      tfm <- liftIO (fmap TransformerVal (newIORef val))
+      tfm <- liftIO (fmap TfmVal (newIORef val))
       fmap (HashMap.insert arg tfm) next
 
 -- | TODO: docs
@@ -129,13 +127,9 @@ getVariable var = do
   case HashMap.lookup var env of
     Nothing ->
       error ("getVariable: variable '" ++ show var ++ "' referenced before it was declared")
-    Just (TransformerVar idt) -> do
-      ph    <- view evalCurrentPhase
-      store <- use evalBindingStore
-      case resolve ph idt store of
-        Nothing   -> error ("getVariable: no binding for argument '" <> show idt <> "'")
-        Just var' -> getVariable var'
-    Just (TransformerVal ref) ->
+    Just (TfmVar idt) -> do
+      error ("getVariable: unresolved identifier '" <> show idt <> "'")
+    Just (TfmVal ref) ->
       liftIO (IORef.readIORef ref)
     Just _ ->
       error ("getVariable: bad syntax: " <> show var)
@@ -149,13 +143,9 @@ putVariable var val = do
   case HashMap.lookup var env of
     Nothing ->
       error ("putVariable: variable '" ++ show var ++ "' referenced before it was declared")
-    Just (TransformerVar idt) -> do
-      ph    <- view evalCurrentPhase
-      store <- use evalBindingStore
-      case resolve ph idt store of
-        Nothing   -> error ("putVariable: no binding for argument '" <> show idt <> "'")
-        Just var' -> putVariable var' val
-    Just (TransformerVal ref) ->
+    Just (TfmVar idt) -> do
+      error ("getVariable: unresolved identifier '" <> show idt <> "'")
+    Just (TfmVal ref) ->
       liftIO (IORef.writeIORef ref val)
     Just _ ->
       error ("putVariable: bad syntax: " <> show var)

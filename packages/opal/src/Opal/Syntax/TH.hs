@@ -27,7 +27,7 @@ import Language.Haskell.TH.Quote (QuasiQuoter (..))
 import Opal.Quasi (qexpToSyntaxE, qexpToSyntaxP)
 import Opal.Quasi.Reader (runQuasiReader)
 
---------------------------------------------------------------------------------
+-- Quasi-Quotation -------------------------------------------------------------
 
 -- | TODO: docs
 --

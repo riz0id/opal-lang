@@ -287,8 +287,7 @@ readSyntax = do
     , readSyntaxSymbol
     , readSyntaxList readSyntax
     ]
-  space
-  pure stx
+  stx <$ space
 
 -- | Read a single 32-bit boolean 'Syntax'.
 --

@@ -47,9 +47,10 @@ import Data.Function ((&))
 
 import GHC.Generics (Generic)
 
-import Opal.Common.BindingStore (BindingStore)
+import Opal.Binding.BindingStore (BindingStore)
 import Opal.Common.Phase (Phase)
-import Opal.Syntax
+import Opal.Error (ErrorAmbiguous (..))
+import Opal.Syntax (Syntax, SyntaxInfo)
 
 -- Parse -----------------------------------------------------------------------
 
@@ -102,7 +103,7 @@ throwQuoteParseError = throwError . ParseErrorCore . ParseErrorQuote
 --
 -- @since 1.0.0
 throwQuoteSyntaxParseError :: Syntax -> Parse a
-throwQuoteSyntaxParseError = throwError . ParseErrorCore . ParseErrorQuoteSyntax
+throwQuoteSyntaxParseError = throwError . ParseErrorCore . ParseErrorSyntax
 
 -- ParseConfig -----------------------------------------------------------------
 
@@ -142,7 +143,9 @@ parseCurrentPhase = lens parse_current_phase \s x -> s { parse_current_phase = x
 --
 -- @since 1.0.0
 data ParseError
-  = ParseErrorEmptyApp {-# UNPACK #-} !SyntaxInfo
+  = ParseErrorAmbiguous {-# UNPACK #-} !ErrorAmbiguous
+    -- ^ TODO: docs
+  | ParseErrorEmptyApp {-# UNPACK #-} !SyntaxInfo
     -- ^ TODO: docs
   | ParseErrorCore CoreParseError
     -- ^ TODO: docs
@@ -154,10 +157,10 @@ data ParseError
 --
 -- @since 1.0.0
 data CoreParseError
-  = ParseErrorLambda      {-# UNPACK #-} !Syntax
+  = ParseErrorLambda {-# UNPACK #-} !Syntax
     -- ^ TODO: docs
-  | ParseErrorQuote       {-# UNPACK #-} !Syntax
+  | ParseErrorQuote  {-# UNPACK #-} !Syntax
     -- ^ TODO: docs
-  | ParseErrorQuoteSyntax {-# UNPACK #-} !Syntax
+  | ParseErrorSyntax {-# UNPACK #-} !Syntax
     -- ^ TODO: docs
   deriving (Show)

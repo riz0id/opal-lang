@@ -39,10 +39,7 @@ import Data.Default (Default (..))
 --
 -- @since 1.0.0
 newtype Writer a = Writer
-  { unWriter ::
-      WriterConfig ->
-      a
-  }
+  { unWriter :: WriterConfig -> a }
 
 -- | @since 1.0.0
 instance Functor Writer where

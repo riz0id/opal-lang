@@ -66,7 +66,7 @@ module Opal.Quasi
   )
 where
 
-import Control.Lens (Lens', lens, (^.), preview)
+import Control.Lens (Lens', lens, (^.), preview, review)
 
 import Data.Default (Default (..))
 import Data.Foldable (Foldable(..))
@@ -79,7 +79,7 @@ import Data.Traversable (for)
 
 import Language.Haskell.TH (Q, Exp (..), Name, Pat (..))
 import Language.Haskell.TH qualified as TH
-import Language.Haskell.TH.Syntax (Lift (..), Type (..))
+import Language.Haskell.TH.Syntax (Lift (..))
 
 import Opal.Common.Symbol (Symbol, symbolToString)
 import Opal.Common.TH (Pattern(..))
@@ -175,12 +175,11 @@ instance Show QuasiList where
 -- @since 1.0.0
 qlistToSyntaxE :: QuasiList -> Q Exp
 qlistToSyntaxE list = do
-  infoE <- lift (def :: SyntaxInfo)
   if null (getQuasiList list)
-    then pure (ConE 'SyntaxList `AppE` ListE [] `AppE` infoE)
+    then pure (VarE 'review `AppE` VarE 'syntaxList `AppE` ListE [])
     else do
       stxsE <- qlistToSyntaxesE list
-      pure (ConE 'SyntaxList `AppE` stxsE `AppE` infoE)
+      pure (VarE 'review `AppE` VarE 'syntaxList `AppE` stxsE)
 
 -- | TODO: docs
 --
@@ -314,8 +313,12 @@ qvarToDatumE var = [e| DatumList $(qvarToDatumsE var) |]
 -- @since 1.0.0
 qvarToSyntaxE :: QuasiVar -> Q Exp
 qvarToSyntaxE var = case var ^. qvarEllipsis of
-  EllipsisNone -> TH.varE (quasiVarToName var)
-  _            -> [e| Syntax $(qvarToDatumE var) def |]
+  EllipsisNone -> do
+    let convertE = toSyntaxConverterE (var ^. qvarKind)
+    let varE     = TH.varE (quasiVarToName var)
+    [e| $convertE $varE |]
+  _            -> do
+    [e| Syntax $(qvarToDatumE var) def |]
 
 -- | Convert a 'QuasiVar' into a list of datums represented as a Haskell
 -- expression.

@@ -80,18 +80,22 @@ library
     , unordered-containers
 
   exposed-modules:
-    Opal.Common.BindingStore
+    Opal.Binding
+    Opal.Binding.BindingStore
+    Opal.Binding.Environment
     Opal.Common.MultiScope
-    Opal.Common.NonEmpty
-    Opal.Common.NonEmpty.TH
     Opal.Common.Phase
     Opal.Common.Scope
     Opal.Common.ScopeSet
+    Opal.Common.SourceInfo
     Opal.Common.SrcLoc
     Opal.Common.Symbol
     Opal.Common.SymbolStore
     Opal.Common.TH
     Opal.Common.Unicode
+    Opal.Error
+    Opal.Error.ErrorCode
+    Opal.Error.ErrorCode.TH
     Opal.Evaluator
     Opal.Evaluator.Monad
     Opal.Expander
@@ -109,7 +113,10 @@ library
     Opal.Reader.Monad
     Opal.Resolve
     Opal.Syntax
+    Opal.Syntax.CoreForm
+    Opal.Syntax.Definition
     Opal.Syntax.ScopeInfo
+    Opal.Syntax.Transformer
     Opal.Syntax.TH
     Opal.Writer
     Opal.Writer.Class
@@ -155,6 +162,7 @@ test-suite opal-test
   build-depends:
     , data-default
     , hedgehog
+    , lens
     , megaparsec
     , opal
     , tasty
@@ -163,7 +171,14 @@ test-suite opal-test
 
   other-modules:
     Test.Core
-    Test.Common.Symbol
-    Test.Memory.Buffer
-    Test.Writer
-    Test.Reader
+    Test.Gen
+    Test.Opal
+    Test.Opal.Common
+    Test.Opal.Common.Symbol
+    Test.Opal.Evaluator
+    Test.Opal.Memory.Buffer
+    Test.Opal.Syntax
+    Test.Opal.Syntax.TH
+    Test.Opal.Quasi
+    Test.Opal.Writer
+    Test.Opal.Reader

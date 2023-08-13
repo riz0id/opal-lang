@@ -1,9 +1,7 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-
 {-# OPTIONS_HADDOCK show-extensions #-}
 
 -- |
--- Module      :  Opal.Common.NonEmpty
+-- Module      :  Test.Opal.Evaluator
 -- Copyright   :  (c) Jacob Leach, 2023
 -- License     :  ISC, see LICENSE
 --
@@ -12,11 +10,17 @@
 -- Portability :  non-portable (GHC extensions)
 --
 -- TODO: docs
---
--- @since 1.0.0
-module Opal.Common.NonEmpty
-  (
+module Test.Opal.Evaluator
+  ( testTree
   )
 where
 
+import Test.Core (TestTree, testGroup)
+
 --------------------------------------------------------------------------------
+
+testTree :: TestTree
+testTree =
+  testGroup "evaluator"
+    [
+    ]

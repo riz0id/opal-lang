@@ -101,6 +101,10 @@ instance Pattern a => Pattern (Maybe a) where
   liftPat (Just x) = fmap (\x' -> ConP 'Just [] [x']) (liftPat x)
 
 -- | @since 1.0.0
+instance Pattern String where
+  liftPat x = pure (LitP (StringL x))
+
+-- | @since 1.0.0
 instance Pattern (Ratio Integer) where
   liftPat x = pure (LitP (RationalL x))
 
