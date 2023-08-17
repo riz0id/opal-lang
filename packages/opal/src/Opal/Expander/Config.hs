@@ -70,7 +70,7 @@ instance Display ExpansionContext where
 
 -- | @since 1.0.0
 instance Show ExpansionContext where
-  show = Doc.pretty 80 . display
+  show = Doc.pretty . display
 
 -- ExpansionContext ------------------------------------------------------------
 

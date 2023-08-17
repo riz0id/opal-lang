@@ -70,7 +70,6 @@ registerErrorCode (ErrorCode _ id) cons = do
 
 -- Template Haskell ------------------------------------------------------------
 
-
 -- | TODO: docs
 --
 -- @since 1.0.0

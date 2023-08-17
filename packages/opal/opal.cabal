@@ -83,6 +83,7 @@ library
     Opal.Binding
     Opal.Binding.BindingStore
     Opal.Binding.Environment
+    Opal.Common.Lens
     Opal.Common.MultiScope
     Opal.Common.Phase
     Opal.Common.Scope
@@ -97,15 +98,20 @@ library
     Opal.Error.ErrorCode
     Opal.Error.ErrorCode.TH
     Opal.Evaluator
+    Opal.Evaluator.Config
     Opal.Evaluator.Monad
+    Opal.Evaluator.State
     Opal.Expander
+    Opal.Expander.Config
     Opal.Expander.Monad
+    Opal.Expander.State
     Opal.Memory.Buffer
     Opal.Memory.ForeignPtr
     Opal.Memory.Ptr
     Opal.Memory.Slice
     Opal.Module
     Opal.Parser
+    Opal.Parser.Config
     Opal.Parser.Monad
     Opal.Quasi
     Opal.Quasi.Reader

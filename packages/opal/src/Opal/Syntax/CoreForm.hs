@@ -38,7 +38,9 @@ import Opal.Syntax.ScopeInfo qualified as ScopeInfo
 --
 -- @since 1.0.0
 data CoreForm
-  = CoreBegin
+  = CoreApp
+    -- ^ The enumeration for the "#%app" core syntactic form.
+  | CoreBegin
     -- ^ The enumeration for the "begin" core syntactic form.
   | CoreDefine
     -- ^ The enumeration for the "define" core syntactic form.
@@ -97,6 +99,7 @@ coreFormSymbol = stringToSymbol . coreFormString
 --
 -- @since 1.0.0
 coreFormString :: CoreForm -> String
+coreFormString CoreApp          = "#%app"
 coreFormString CoreBegin        = "begin"
 coreFormString CoreDefine       = "define"
 coreFormString CoreDefineSyntax = "define-syntax"
@@ -107,4 +110,4 @@ coreFormString CoreModuleBegin  = "module-begin"
 coreFormString CoreExport       = "export"
 coreFormString CoreImport       = "import"
 coreFormString CoreQuote        = "quote"
-coreFormString CoreSyntax       = "quote"
+coreFormString CoreSyntax       = "quote-syntax"

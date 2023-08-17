@@ -88,3 +88,7 @@ instance Display a => Display [a] where
 -- | @since 1.0.0
 instance Display () where
   display () = Doc.string "()"
+
+-- | @since 1.0.0
+instance (Display a, Display b) => Display (a, b) where
+  display (x, y) = Doc.char '(' <> display x <> Doc.string ", " <> display y <> Doc.char ')'

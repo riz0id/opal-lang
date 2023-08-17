@@ -21,6 +21,7 @@ module Opal.Common.ScopeSet
   , empty
   , singleton
   , insert
+  , flipScope
   , delete
     -- ** Query
   , member
@@ -104,6 +105,14 @@ singleton = coerce Set.singleton
 -- @since 1.0.0
 insert :: Scope -> ScopeSet -> ScopeSet
 insert = coerce Set.insert
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+flipScope :: Scope -> ScopeSet -> ScopeSet
+flipScope sc scps
+  | member sc scps = delete sc scps
+  | otherwise      = insert sc scps
 
 -- | TODO: docs
 --

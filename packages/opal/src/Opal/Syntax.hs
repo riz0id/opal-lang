@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 {-# OPTIONS_HADDOCK show-extensions #-}
 
@@ -60,8 +60,12 @@ module Opal.Syntax
     -- ** Basic Operations
   , datumToSyntax
   , syntaxToDatum
+  , syntaxCons
+  , syntaxProperty
+  , syntaxTrackOrigin
     -- ** Scope Operations
   , syntaxScope
+  , syntaxFlipScope
   , syntaxPrune
     -- ** Optics
   , syntaxDatum
@@ -73,6 +77,7 @@ module Opal.Syntax
   , syntaxF32
   , syntaxI32
   , syntaxId
+  , syntaxLambda
   , syntaxList
     -- * SyntaxInfo
   , SyntaxInfo (..)
@@ -87,7 +92,7 @@ where
 
 import Control.DeepSeq (NFData)
 
-import Control.Lens (Lens', Prism', lens, over, preview, prism', view, (^.))
+import Control.Lens (Lens', Prism', lens, over, preview, prism', review, view, (^.), (&), (.~))
 
 import Data.Default (Default (..))
 import Data.HashMap.Strict (HashMap)
@@ -96,7 +101,7 @@ import Data.Int (Int32)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 
-import GHC.Exts (IsList (..), IsString (..))
+import GHC.Exts (IsString (..))
 import GHC.Generics (Generic)
 
 import Language.Haskell.TH.Syntax (Lift)
@@ -147,7 +152,7 @@ instance NFData Value
 
 -- | @since 1.0.0
 instance Show Value where
-  show = Doc.pretty 80 . display
+  show = Doc.pretty . display
 
 -- Datum - Optics --------------------------------------------------------------
 
@@ -249,7 +254,7 @@ pattern DatumLam x = DatumVal (ValueLam x)
 
 -- | @since 1.0.0
 instance Display Datum where
-  display (DatumVal    x) = display x
+  display (DatumVal  x) = display x
   display (DatumLam  x) = display x
   display (DatumList x) = displayList x
   display (DatumStx  x) = display x
@@ -261,7 +266,7 @@ instance NFData Datum
 
 -- | @since 1.0.0
 instance Show Datum where
-  show = Doc.pretty 80 . display
+  show = Doc.pretty . display
 
 -- Datum - Optics --------------------------------------------------------------
 
@@ -343,9 +348,9 @@ data Lambda = Lambda
 -- | @since 1.0.0
 instance Display Lambda where
   display (Lambda args body) =
-    Doc.vsep
-      [ Doc.string "(lambda (" <> Doc.sepMap (Doc.string . symbolToString) (Doc.char ' ') (toList args) <> Doc.string ")"
-      , Doc.nest 2 (display body <> Doc.char ')')
+    mconcat
+      [ Doc.string "(lambda (" <> Doc.sepMap (Doc.string . symbolToString) (Doc.char ' ') args <> Doc.string ")"
+      , Doc.group (Doc.indent 2 (display body <> Doc.char ')'))
       ]
 
 -- | @since 1.0.0
@@ -353,7 +358,7 @@ instance NFData Lambda
 
 -- | @since 1.0.0
 instance Show Lambda where
-  show = Doc.pretty 80 . display
+  show = Doc.pretty . display
 
 -- Lambda - Optics -------------------------------------------------------------
 
@@ -402,16 +407,6 @@ instance Display SExp where
   displayList xs = Doc.string "(" <> Doc.sepMap display (Doc.char ' ') xs <> Doc.char ')'
 
 -- | @since 1.0.0
-instance IsList SExp where
-  type Item SExp = SExp
-
-  fromList []         = errorWithoutStackTrace "(fromList @SExp []): empty lists cannot be converted to s-expressions"
-  fromList (ex : exs) = SApp (ex :| exs)
-
-  toList (SApp sexps) = NonEmpty.toList sexps
-  toList other        = errorWithoutStackTrace ("(toList @SExp): s-expression is not a list: " ++ show other)
-
--- | @since 1.0.0
 instance IsString SExp where
   fromString = SVar . stringToSymbol
 
@@ -420,7 +415,7 @@ instance NFData SExp
 
 -- | @since 1.0.0
 instance Show SExp where
-  show = Doc.pretty 80 . display
+  show = Doc.pretty . display
 
 -- Identifier ------------------------------------------------------------------
 
@@ -443,7 +438,7 @@ instance Display Identifier where
 
 -- | @since 1.0.0
 instance Show Identifier where
-  show = Doc.pretty 80 . display
+  show = Doc.pretty . display
 
 -- Identifier - Basic Operations -----------------------------------------------
 
@@ -529,9 +524,7 @@ pattern SyntaxI32 x info = SyntaxVal (ValueI32 x) info
 pattern SyntaxLam :: Lambda -> SyntaxInfo -> Syntax
 pattern SyntaxLam x info = SyntaxVal (ValueLam x) info
 
-{-# COMPLETE
-  SyntaxB, SyntaxC, SyntaxS, SyntaxF32, SyntaxI32, SyntaxLam, SyntaxList
-  #-}
+{-# COMPLETE SyntaxB, SyntaxC, SyntaxS, SyntaxF32, SyntaxI32, SyntaxLam, SyntaxList #-}
 
 -- | @since 1.0.0
 instance Display Syntax where
@@ -541,20 +534,11 @@ instance Display Syntax where
     datum       -> display datum
 
 -- | @since 1.0.0
-instance IsList Syntax where
-  type Item Syntax = Syntax
-
-  fromList stxs = SyntaxList stxs def
-
-  toList (SyntaxList stxs _) = stxs
-  toList _                   = errorWithoutStackTrace "(toList @Syntax): syntax object is not a list"
-
--- | @since 1.0.0
 instance NFData Syntax
 
 -- | @since 1.0.0
 instance Show Syntax where
-  show = Doc.pretty 80 . display
+  show = Doc.pretty . display
 
 -- Syntax - Basic Operations ---------------------------------------------------
 
@@ -572,7 +556,7 @@ instance Show Syntax where
 --
 -- @since 1.0.0
 datumToSyntax :: SyntaxInfo -> Datum -> Syntax
-datumToSyntax info (DatumVal    val)  = SyntaxVal val info
+datumToSyntax info (DatumVal  val)  = SyntaxVal val info
 datumToSyntax info (DatumList vals) = SyntaxList (map (datumToSyntax info) vals) info
 datumToSyntax _    (DatumStx  stx)  = stx
 
@@ -583,6 +567,43 @@ datumToSyntax _    (DatumStx  stx)  = stx
 syntaxToDatum :: Syntax -> Datum
 syntaxToDatum (SyntaxVal  val  _) = DatumVal val
 syntaxToDatum (SyntaxList stxs _) = DatumList (map syntaxToDatum stxs)
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+syntaxCons :: Syntax -> Syntax -> Syntax
+syntaxCons stx stxs = case preview syntaxList stxs of
+  Nothing    -> review syntaxList [stx, stxs]
+  Just stxs' -> review syntaxList (stx : stxs')
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+syntaxProperty :: Syntax -> Symbol -> Syntax -> Syntax
+syntaxProperty stx s p = over syntaxProperties (HashMap.insert s p) stx
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+syntaxTrackOrigin :: Syntax -> Syntax -> Syntax
+syntaxTrackOrigin newStx oldStx
+  | HashMap.null oldProps = syntaxProperty newStx "origin" oldStx
+  | HashMap.null newProps =
+    case HashMap.lookup "origin" oldProps of
+      Nothing     -> syntaxProperty newStx "origin" oldStx
+      Just origin -> syntaxProperty newStx "origin" (syntaxCons oldStx origin)
+  | otherwise =
+    let props = oldProps <> newProps
+        stx   = newStx & syntaxProperties .~ props
+     in case HashMap.lookup "origin" props of
+          Nothing     -> syntaxProperty stx "origin" oldStx
+          Just origin -> syntaxProperty stx "origin" (syntaxCons oldStx origin)
+  where
+    newProps :: HashMap Symbol Syntax
+    newProps = newStx ^. syntaxProperties
+
+    oldProps :: HashMap Symbol Syntax
+    oldProps = oldStx ^. syntaxProperties
 
 -- Syntax - Scope Operations ---------------------------------------------------
 
@@ -596,6 +617,18 @@ syntaxScope ph sc (SyntaxVal val info) =
 syntaxScope ph sc (SyntaxList stxs info) =
   let stxs' = map (syntaxScope ph sc) stxs
       info' = over stxInfoScopes (ScopeInfo.insert ph sc) info
+   in SyntaxList stxs' info'
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+syntaxFlipScope :: Phase -> Scope -> Syntax -> Syntax
+syntaxFlipScope ph sc (SyntaxVal val info) =
+  let info' = over stxInfoScopes (ScopeInfo.flipScope ph sc) info
+   in SyntaxVal val info'
+syntaxFlipScope ph sc (SyntaxList stxs info) =
+  let stxs' = map (syntaxFlipScope ph sc) stxs
+      info' = over stxInfoScopes (ScopeInfo.flipScope ph sc) info
    in SyntaxList stxs' info'
 
 -- | TODO: docs
@@ -681,6 +714,14 @@ syntaxId :: Prism' Syntax Identifier
 syntaxId = prism' identifierToSyntax \case
   SyntaxS s info -> Just (Identifier s info)
   _              -> Nothing
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+syntaxLambda :: Prism' Syntax Lambda
+syntaxLambda = prism' (\x -> SyntaxLam x def) \case
+  SyntaxLam fun _ -> Just fun
+  _               -> Nothing
 
 -- | TODO: docs
 --

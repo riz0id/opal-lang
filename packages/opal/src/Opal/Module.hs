@@ -86,7 +86,7 @@ instance Display Namespace where
 
 -- | @since 1.0.0
 instance Show Namespace where
-  show = Doc.pretty 80 . display
+  show = Doc.pretty . display
 
 -- Namespace - Basic Operations ------------------------------------------------
 
@@ -140,7 +140,7 @@ instance Display Module where
 
 -- | @since 1.0.0
 instance Show Module where
-  show = Doc.pretty 60 . display
+  show = Doc.pretty . display
 
 -- Module - Basic Operations ---------------------------------------------------
 

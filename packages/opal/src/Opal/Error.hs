@@ -19,12 +19,15 @@ module Opal.Error
     Error (..)
     -- * ErrorAmbiguous
   , ErrorAmbiguous (..)
+    -- * ErrorNotBound
+  , ErrorNotBound (..)
     -- * ErrorNotInScope
   , ErrorNotInScope (..)
   )
 where
 
 import Opal.Binding (Binding)
+import Opal.Common.Symbol (Symbol)
 import Opal.Error.ErrorCode (ErrorCode)
 import Opal.Error.ErrorCode.TH (errorcode)
 import Opal.Syntax (Identifier)
@@ -74,7 +77,39 @@ instance Error ErrorAmbiguous where
 
 -- | @since 1.0.0
 instance Show ErrorAmbiguous where
-  show = Doc.pretty 80 . display
+  show = Doc.pretty . display
+
+-- ErrorNotBound ---------------------------------------------------------------
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+data ErrorNotBound = ErrorNotBound
+  { error_not_bound_id      :: {-# UNPACK #-} !Identifier
+    -- ^ The identifier with that resolved to the generated symbol.
+  , error_not_bound_binding :: {-# UNPACK #-} !Symbol
+    -- ^ The generated symbol that was bound to the identifier.
+  }
+  deriving (Eq, Ord)
+
+-- | @since 1.0.0
+instance Display ErrorNotBound where
+  display (ErrorNotBound id b) =
+    Doc.hsep
+      [ "the generated symbol"
+      , display b
+      , "bound to the identifier"
+      , display id
+      , "lacks a binding in the compile-time environment"
+      ]
+
+-- | @since 1.0.0
+instance Error ErrorNotBound where
+  errorCode _ = [errorcode| OPAL-10003 |]
+
+-- | @since 1.0.0
+instance Show ErrorNotBound where
+  show = Doc.pretty . display
 
 -- ErrorNotInScope -------------------------------------------------------------
 
@@ -95,4 +130,4 @@ instance Error ErrorNotInScope where
 
 -- | @since 1.0.0
 instance Show ErrorNotInScope where
-  show = Doc.pretty 80 . display
+  show = Doc.pretty . display

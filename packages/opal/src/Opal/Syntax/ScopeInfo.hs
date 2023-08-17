@@ -22,6 +22,7 @@ module Opal.Syntax.ScopeInfo
   , singleton
   , insert
   , inserts
+  , flipScope
   , deletes
   , lookup
   , union
@@ -133,6 +134,12 @@ inserts (Just ph) scps (ScopeInfo gscps mscps)
      in if ScopeSet.null scps'
           then ScopeInfo gscps mscps
           else ScopeInfo gscps (MultiScope.inserts ph scps' mscps)
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+flipScope :: Phase -> Scope -> ScopeInfo -> ScopeInfo
+flipScope ph sc (ScopeInfo gscps mscps) = ScopeInfo gscps (MultiScope.flipScope ph sc mscps)
 
 -- | TODO: docs
 --

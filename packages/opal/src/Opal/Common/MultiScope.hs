@@ -23,6 +23,7 @@ module Opal.Common.MultiScope
   , singleton
   , insert
   , inserts
+  , flipScope
   , delete
   , deletes
   , lookup
@@ -129,7 +130,7 @@ empty = coerce @(Map _ ScopeSet) Map.empty
 singleton :: Phase -> ScopeSet -> MultiScope
 singleton = coerce @(_ -> ScopeSet -> _) Map.singleton
 
--- | \(O(\log n)\). TODO: docs
+-- | TODO: docs
 --
 -- @since 1.0.0
 insert :: Phase -> Scope -> MultiScope -> MultiScope
@@ -137,7 +138,7 @@ insert ph sc = alter ph \case
   Nothing   -> Just (ScopeSet.singleton sc)
   Just scps -> Just (ScopeSet.insert sc scps)
 
--- | \(O(\log n)\). TODO: docs
+-- | TODO: docs
 --
 -- @since 1.0.0
 inserts :: Phase -> ScopeSet -> MultiScope -> MultiScope
@@ -145,7 +146,15 @@ inserts ph scps = alter ph \case
   Nothing    -> Just scps
   Just scps' -> Just (ScopeSet.union scps scps')
 
--- | \(O(\log n)\). TODO: docs
+-- | TODO: docs
+--
+-- @since 1.0.0
+flipScope :: Phase -> Scope -> MultiScope -> MultiScope
+flipScope ph sc = alter ph \case
+  Nothing   -> Just (ScopeSet.singleton sc)
+  Just scps -> Just (ScopeSet.flipScope sc scps)
+
+-- | TODO: docs
 --
 -- @since 1.0.0
 delete :: Maybe Phase -> Scope -> MultiScope -> MultiScope

@@ -72,7 +72,7 @@ instance Pattern ErrorCode where
 
 -- | @since 1.0.0
 instance Show ErrorCode where
-  show = Doc.pretty 80 . display
+  show = Doc.pretty . display
 
 -- ErrorCode - Readers ---------------------------------------------------------
 

@@ -15,6 +15,7 @@
 module Opal.Writer
   ( -- * Basic Operations
     pretty
+  , pretty'
     -- * IO Operations
   , putDoc
   , putDocLn
@@ -37,8 +38,14 @@ import System.IO (Handle, hPutStr, hPutStrLn, stdout)
 -- | TODO: docs
 --
 -- @since 1.0.0
-pretty :: Int -> Doc -> String
-pretty w = layoutDocStream . bestFitDoc w 0
+pretty :: Doc -> String
+pretty = pretty' 80
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+pretty' :: Int -> Doc -> String
+pretty' w = layoutDocStream . bestFitDoc w 0
 
 -- IO Operations ---------------------------------------------------------------
 
@@ -61,11 +68,11 @@ putDocLn = hPutDocLn stdout
 --
 -- @since 1.0.0
 hPutDoc :: Handle -> Int -> Doc -> IO ()
-hPutDoc handle w = hPutStr handle . pretty w
+hPutDoc handle w = hPutStr handle . pretty' w
 
 -- | Writes given 'Doc' to the file 'Handle' followed by a newline character.
 -- The document is fit to the specified maximum document width.
 --
 -- @since 1.0.0
 hPutDocLn :: Handle -> Int -> Doc -> IO ()
-hPutDocLn handle w = hPutStrLn handle . pretty w
+hPutDocLn handle w = hPutStrLn handle . pretty' w

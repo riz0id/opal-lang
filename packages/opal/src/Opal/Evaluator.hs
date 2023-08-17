@@ -27,6 +27,8 @@ module Opal.Evaluator
   , putVariable
     -- * EvalConfig
   , EvalConfig (..)
+    -- * EvalError
+  , EvalError (..)
     -- * EvalState
   , EvalState (..)
   )
@@ -35,38 +37,43 @@ where
 import Control.Lens (set, view)
 
 import Control.Monad (unless)
+import Control.Monad.Except (MonadError(..))
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (MonadReader(..))
 
-import Data.HashMap.Strict (HashMap)
-import Data.HashMap.Strict qualified as HashMap
+import Data.Default (Default (..))
 import Data.IORef (newIORef)
 import Data.IORef qualified as IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 
+import Opal.Binding.Environment (Environment)
+import Opal.Binding.Environment qualified as Environment
 import Opal.Common.Symbol (Symbol (..))
 import Opal.Evaluator.Monad
   ( Eval (..)
   , EvalConfig (..)
+  , EvalError (..)
   , EvalState (..)
   , evalEnvironment
   , runEval
   )
 import Opal.Syntax
   ( Datum (..)
+  , Identifier (..)
   , Lambda (..)
   , SExp (..)
   , lambdaArity
   )
 import Opal.Syntax.Transformer
+import Opal.Error (ErrorNotBound(ErrorNotBound))
 
 -- Eval - Evaluate -------------------------------------------------------------
 
 -- | TODO: docs
 --
 -- @since 1.0.0
-runEvalSExp :: EvalConfig -> EvalState -> SExp -> IO (Datum, EvalState)
+runEvalSExp :: EvalConfig -> EvalState -> SExp -> IO (Either EvalError (Datum, EvalState))
 runEvalSExp c s0 = runEval c s0 . evalSExp
 
 -- | TODO: docs
@@ -96,14 +103,11 @@ evalSApp lam@(Lambda args body) sexps = do
 
   local (set evalEnvironment env') (evalSExp body)
   where
-    insertEnvironment ::
-      (Symbol, SExp) ->
-      Eval (HashMap Symbol Transformer) ->
-      Eval (HashMap Symbol Transformer)
+    insertEnvironment :: (Symbol, SExp) -> Eval Environment -> Eval Environment
     insertEnvironment (arg, sexp) next = do
       val <- evalSExp sexp
       tfm <- liftIO (fmap TfmVal (newIORef val))
-      fmap (HashMap.insert arg tfm) next
+      fmap (Environment.insert arg tfm) next
 
 -- | TODO: docs
 --
@@ -123,16 +127,10 @@ evalSExpBody (sexp :| sexps) = do
 getVariable :: Symbol -> Eval Datum
 getVariable var = do
   env <- view evalEnvironment
-  liftIO (putStrLn (show env))
-  case HashMap.lookup var env of
-    Nothing ->
-      error ("getVariable: variable '" ++ show var ++ "' referenced before it was declared")
-    Just (TfmVar idt) -> do
-      error ("getVariable: unresolved identifier '" <> show idt <> "'")
-    Just (TfmVal ref) ->
-      liftIO (IORef.readIORef ref)
-    Just _ ->
-      error ("getVariable: bad syntax: " <> show var)
+  case Environment.lookup var env of
+    Nothing           -> throwError (EvalNotBound (ErrorNotBound (Identifier var def) var))
+    Just (TfmVal ref) -> liftIO (IORef.readIORef ref)
+    Just _            -> error ("getVariable: bad syntax: " <> show var)
 
 -- | TODO: docs
 --
@@ -140,12 +138,7 @@ getVariable var = do
 putVariable :: Symbol -> Datum -> Eval ()
 putVariable var val = do
   env <- view evalEnvironment
-  case HashMap.lookup var env of
-    Nothing ->
-      error ("putVariable: variable '" ++ show var ++ "' referenced before it was declared")
-    Just (TfmVar idt) -> do
-      error ("getVariable: unresolved identifier '" <> show idt <> "'")
-    Just (TfmVal ref) ->
-      liftIO (IORef.writeIORef ref val)
-    Just _ ->
-      error ("putVariable: bad syntax: " <> show var)
+  case Environment.lookup var env of
+    Nothing           -> throwError (EvalNotBound (ErrorNotBound (Identifier var def) var))
+    Just (TfmVal ref) -> liftIO (IORef.writeIORef ref val)
+    Just _            -> error ("putVariable: bad syntax: " <> show var)

@@ -1,10 +1,14 @@
-
 (module bool
-  (import opal)
+  (import)
 
-  (export true)
+  (export
+    true
+    false)
 
-  (define-syntax not (lambda (x) (quote-syntax #f)))
+  (module-begin
 
-  (define x (not #t))
-)
+    (define true #t)
+
+    (define false #f)
+
+  ))

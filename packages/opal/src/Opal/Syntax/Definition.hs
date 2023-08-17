@@ -16,16 +16,7 @@
 --
 -- @since 1.0.0
 module Opal.Syntax.Definition
-  ( -- * SyntaxBody
-    SyntaxBody (..)
-    -- ** Basic Operations
-  , syntaxToSyntaxBody
-  , syntaxBodyToDefinitions
-    -- ** Optics
-  , syntaxBodyDefns
-  , syntaxBodyFinal
-    -- * Definition
-  , Definition (..)
+  ( Definition (..)
     -- ** Basic Operations
   , definitionToSyntax
     -- * Begin
@@ -34,8 +25,8 @@ module Opal.Syntax.Definition
   , beginToDefinitions
   , beginToSyntax
   , syntaxToBegin
+  , beginToLetRec
     -- ** Optics
-  , beginBody
   , beginDefns
   , beginFinal
     -- * Define
@@ -57,67 +48,13 @@ where
 
 import Control.Lens (Lens', lens, (^.))
 
-import Data.Coerce (coerce)
-
-import Opal.Syntax (Identifier, Syntax)
+import Opal.Syntax (Identifier, Syntax, syntaxScope)
 import Opal.Writer (Display (..), (<+>))
 import Opal.Writer qualified as Doc
 
 import Prelude hiding (id)
 import Opal.Syntax.TH (syntax)
-
--- SyntaxBody ------------------------------------------------------------------
-
--- | A 'SyntaxBody' is the body of a "begin" definition. It is a list of
--- definitions or syntax objects terminated by a syntax object.
---
--- @since 1.0.0
-data SyntaxBody = SyntaxBody
-  { syntax_body_defns :: [Definition]
-    -- ^ A list of definitions or syntax expressions that make up the initial
-    -- part of the 'SyntaxBody'.
-  , syntax_body_final :: Syntax
-    -- ^ The final syntax expression terminating the 'SyntaxBody'.
-  }
-  deriving (Eq, Ord)
-
--- | @since 1.0.0
-instance Display SyntaxBody where
-  display (SyntaxBody []    final) = display final
-  display (SyntaxBody defns final) = foldr ((<+>) . display) (display final) defns
-
--- | @since 1.0.0
-instance Show SyntaxBody where
-  show (SyntaxBody []    final) = show final
-  show (SyntaxBody defns final) = foldr ((++) . (:) ' ' . show) (show final) defns
-
--- SyntaxBody - Basic Operations -----------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-syntaxToSyntaxBody :: Syntax -> SyntaxBody
-syntaxToSyntaxBody = SyntaxBody []
-
--- | TODO: docs
---
--- @since 1.0.0
-syntaxBodyToDefinitions :: SyntaxBody -> [Definition]
-syntaxBodyToDefinitions (SyntaxBody defns stx) = foldr (:) [DefnSyntax stx] defns
-
--- SyntaxBody - Optics ---------------------------------------------------------
-
--- | Lens focusing on the 'syntax_body_defns' field of a 'SyntaxBody'.
---
--- @since 1.0.0
-syntaxBodyDefns :: Lens' SyntaxBody [Definition]
-syntaxBodyDefns = lens syntax_body_defns \s x -> s { syntax_body_defns = x }
-
--- | Lens focusing on the 'syntax_body_final' field of a 'SyntaxBody'.
---
--- @since 1.0.0
-syntaxBodyFinal :: Lens' SyntaxBody Syntax
-syntaxBodyFinal = lens syntax_body_final \s x -> s { syntax_body_final = x }
+import Data.Default (Default(..))
 
 -- Definition ------------------------------------------------------------------
 
@@ -125,29 +62,25 @@ syntaxBodyFinal = lens syntax_body_final \s x -> s { syntax_body_final = x }
 --
 -- @since 1.0.0
 data Definition
-  = DefnBegin  {-# UNPACK #-} !Begin
-    -- ^ A "begin" definition.
-  | DefnDefine {-# UNPACK #-} !Define
+  = DefnDefine {-# UNPACK #-} !Define
     -- ^ A "define" definition.
-  | DefnDefineSyntax {-# UNPACK #-} !DefineSyntax
+  | DefnSyntax {-# UNPACK #-} !DefineSyntax
     -- ^ A "define-syntax" definition.
-  | DefnSyntax  Syntax
+  | DefnExpr Syntax
     -- ^ An syntax object expression embedded into a definition context.
   deriving (Eq, Ord)
 
 -- | @since 1.0.0
 instance Display Definition where
-  display (DefnBegin        defn) = display defn
-  display (DefnDefine       defn) = display defn
-  display (DefnDefineSyntax defn) = display defn
-  display (DefnSyntax       stx)  = display stx
+  display (DefnDefine defn) = display defn
+  display (DefnSyntax defn) = display defn
+  display (DefnExpr   expr) = display expr
 
 -- | @since 1.0.0
 instance Show Definition where
-  show (DefnBegin        defn) = show defn
-  show (DefnDefine       defn) = show defn
-  show (DefnDefineSyntax defn) = show defn
-  show (DefnSyntax       stx)  = show stx
+  show (DefnDefine defn) = show defn
+  show (DefnSyntax defn) = show defn
+  show (DefnExpr   expr) = show expr
 
 -- Definition - Basic Operations -----------------------------------------------
 
@@ -155,27 +88,36 @@ instance Show Definition where
 --
 -- @since 1.0.0
 definitionToSyntax :: Definition -> Syntax
-definitionToSyntax (DefnBegin        defn) = beginToSyntax defn
-definitionToSyntax (DefnDefine       defn) = defineToSyntax defn
-definitionToSyntax (DefnDefineSyntax defn) = defineSyntaxToSyntax defn
-definitionToSyntax (DefnSyntax       stx)  = stx
+definitionToSyntax (DefnDefine defn) = defineToSyntax defn
+definitionToSyntax (DefnSyntax defn) = defineSyntaxToSyntax defn
+definitionToSyntax (DefnExpr   expr) = expr
 
 -- Begin -----------------------------------------------------------------------
 
 -- | TODO: docs
 --
 -- @since 1.0.0
-newtype Begin = Begin
-  { getSyntaxBegin :: SyntaxBody }
+data Begin = Begin
+  { begin_defns :: [Definition]
+    -- ^ A list of definitions or syntax expressions that make up the initial
+    -- part of the 'SyntaxBody'.
+  , begin_final  :: {-# UNPACK #-} !Syntax
+    -- ^ The final syntax expression terminating the 'SyntaxBody'.
+  }
   deriving (Eq, Ord)
 
 -- | @since 1.0.0
 instance Display Begin where
-  display (Begin body) = Doc.string "(begin" <+> display body <> Doc.char ')'
+  display x =
+    mconcat
+      [ Doc.string "(begin"
+      , Doc.indent 2 (Doc.vsep (map display (beginToDefinitions x)))
+      , Doc.char ')'
+      ]
 
 -- | @since 1.0.0
 instance Show Begin where
-  show (Begin body) = "(begin " ++ show body ++ ")"
+  show = Doc.pretty . display
 
 -- Begin - Basic Operations ----------------------------------------------------
 
@@ -184,7 +126,7 @@ instance Show Begin where
 --
 -- @since 1.0.0
 beginToDefinitions :: Begin -> [Definition]
-beginToDefinitions = syntaxBodyToDefinitions . getSyntaxBegin
+beginToDefinitions (Begin defns final) = foldr (:) [DefnExpr final] defns
 
 -- | Rebuild the given "define" definition as a raw syntax object.
 --
@@ -199,29 +141,52 @@ beginToSyntax begin =
 --
 -- @since 1.0.0
 syntaxToBegin :: Syntax -> Begin
-syntaxToBegin = Begin . syntaxToSyntaxBody
+syntaxToBegin = Begin []
+
+-- | Convert a "begin" form into a "letrec-syntaxes+values" form.
+--
+-- @since 1.0.0
+beginToLetRec :: Begin -> Syntax
+beginToLetRec (Begin defns expr) =
+  -- FIXME: Adding the core scope here seems dubious, but is necessary for the
+  -- "letrec-syntaxes+values" identifier to resolve correctly.
+  syntaxScope Nothing def [syntax|
+    (letrec-syntaxes+values
+      (?transIds ...)
+      (?valIds ...)
+      ?expr)
+  |]
+  where
+    transIds :: [Syntax]
+    transIds = foldr definitionToTransId [] defns
+
+    definitionToTransId :: Definition -> [Syntax] -> [Syntax]
+    definitionToTransId defn stxs = case defn of
+      DefnSyntax (DefineSyntax id stx) -> [syntax| (?id:id ?stx) |] : stxs
+      _                                -> stxs
+
+    valIds :: [Syntax]
+    valIds = foldr definitionToValId [] defns
+
+    definitionToValId :: Definition -> [Syntax] -> [Syntax]
+    definitionToValId defn stxs = case defn of
+      DefnDefine (Define id stx) -> [syntax| (?id:id ?stx) |] : stxs
+      DefnSyntax _               -> stxs
+      DefnExpr   stx             -> [syntax| (_ ?stx)      |] : stxs
 
 -- Begin - Optics --------------------------------------------------------------
 
--- | Lens focusing on the 'getSyntaxBegin' field of a 'Begin'.
---
--- @since 1.0.0
-beginBody :: Lens' Begin SyntaxBody
-beginBody = lens coerce \_ x -> coerce x
-
--- | Compound lens focusing on the @('syntaxBeginBody' . 'syntaxBodyDefns')@
--- field of a 'Begin'.
+-- | Lens focusing on the 'begin_defns' field of a 'Begin'.
 --
 -- @since 1.0.0
 beginDefns :: Lens' Begin [Definition]
-beginDefns = beginBody . syntaxBodyDefns
+beginDefns = lens begin_defns \s x -> s { begin_defns = x }
 
--- | Compound lens focusing on the @('syntaxBeginBody' . 'syntaxBodyFinal')@
--- field of a 'Begin'.
+-- | Lens focusing on the 'begin_final' field of a 'Begin'.
 --
 -- @since 1.0.0
 beginFinal :: Lens' Begin Syntax
-beginFinal = beginBody . syntaxBodyFinal
+beginFinal = lens begin_final \s x -> s { begin_final = x }
 
 -- Define ----------------------------------------------------------------------
 
