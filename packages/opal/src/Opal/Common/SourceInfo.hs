@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 -- |
 -- Module      :  Opal.Common.SourceInfo
 -- Copyright   :  (c) Jacob Leach, 2023
@@ -21,12 +22,11 @@ where
 
 import Control.DeepSeq (NFData)
 
-import Control.Lens (Lens', lens)
-
 import GHC.Generics (Generic)
 
 import Language.Haskell.TH.Syntax (Lift)
 
+import Opal.Common.Lens (defineLenses)
 import Opal.Common.SrcLoc (SrcLoc)
 import Opal.Writer (Display (..))
 import Opal.Writer qualified as Doc
@@ -37,12 +37,14 @@ import Opal.Writer qualified as Doc
 --
 -- @since 1.0.0
 data SourceInfo = SourceInfo
-  { source_info_filepath :: FilePath
+  { source_info_file_path :: FilePath
     -- ^ The path to the source file that the 'SourceInfo' originated from.
-  , source_info_srcloc  :: {-# UNPACK #-} !SrcLoc
+  , source_info_src_loc   :: {-# UNPACK #-} !SrcLoc
     -- ^ The source location that the 'SourceInfo' originated from.
   }
   deriving (Eq, Generic, Lift, Ord, Show)
+
+$(defineLenses ''SourceInfo)
 
 -- | @since 1.0.0
 instance Display SourceInfo where
@@ -50,17 +52,3 @@ instance Display SourceInfo where
 
 -- | @since 1.0.0
 instance NFData SourceInfo
-
--- SourceInfo - Optics ---------------------------------------------------------
-
--- | Lens focusing on the 'source_info_filepath' field of a 'SourceInfo'.
---
--- @since 1.0.0
-sourceInfoFilePath :: Lens' SourceInfo FilePath
-sourceInfoFilePath = lens source_info_filepath \s x -> s { source_info_filepath = x }
-
--- | Lens focusing on the 'source_info_srcloc' field of a 'SourceInfo'.
---
--- @since 1.0.0
-sourceInfoSrcLoc :: Lens' SourceInfo SrcLoc
-sourceInfoSrcLoc = lens source_info_srcloc \s x -> s { source_info_srcloc = x }

@@ -1,5 +1,7 @@
-{-# LANGUAGE OverloadedLists #-}
-{-# LANGUAGE QuasiQuotes     #-}
+{-# LANGUAGE OverloadedLists   #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes       #-}
+{-# LANGUAGE TupleSections     #-}
 {-# OPTIONS_HADDOCK show-extensions #-}
 
 -- |
@@ -23,16 +25,14 @@ module Opal.Expander
   , runExpandAndParseFile
   , runExpandSyntax
   , runExpandAndParseSyntax
-    -- ** Expand Operations
-  , expandSyntax
-  , expandId
-  , expandSyntaxList
     -- * ExpandConfig
   , ExpandConfig (..)
+    -- * ExpandState
+  , ExpandState (..)
   )
 where
 
-import Control.Lens (over, use, view, (^.), (%~), (%=))
+import Control.Lens (over, use, view, (^.), (%~), (.=), (%=), preview, review)
 
 import Control.Monad (unless, foldM)
 import Control.Monad.Except (MonadError(..))
@@ -41,38 +41,55 @@ import Control.Monad.Reader (MonadReader(..))
 
 import Data.Default (Default (..))
 import Data.Foldable (for_)
-import Data.IORef (readIORef, newIORef)
+import Data.IORef (IORef, readIORef, newIORef)
+import Data.List.NonEmpty (NonEmpty)
+import Data.List.NonEmpty qualified as NonEmpty
+import Data.Primitive.MutVar (MutVar, newMutVar, modifyMutVar', readMutVar)
+import Data.Text (Text)
 import Data.Traversable (for)
 
-import Opal.Binding (Binding(..))
+import GHC.Exts (RealWorld)
+
+import Opal.Binding (Binding (..))
 import Opal.Binding.BindingStore qualified as BindingStore
-import Opal.Common.Phase (Phase, phasePlus)
+import Opal.Binding.Environment (Environment)
+import Opal.Binding.Environment qualified as Environment
+import Opal.Common.Phase (phasePlus, Phase, PhaseShift)
 import Opal.Common.Scope (MonadScope (..), Scope)
-import Opal.Common.Symbol (MonadGenSym (..), Symbol)
+import Opal.Common.ScopeSet qualified as ScopeSet
+import Opal.Common.Symbol (MonadGenSym (..), Symbol, symbolToString)
+import Opal.Error (ErrorNotBound(..))
+import Opal.Evaluator (EvalConfig (..), EvalError (..), EvalState (..), runEvalSExp)
+import Opal.Evaluator.Monad (evalBindingStore)
 import Opal.Expander.Monad
-import Opal.Module
-import Opal.Parser (ParseConfig (..), ParseError (..), runParseSyntax, CoreParseError (..))
+import Opal.Parser
+  ( CoreParseError (..)
+  , ParseConfig (..)
+  , ParseError (..)
+  , runParseSyntax
+  )
 import Opal.Reader (runFileReader)
 import Opal.Syntax
+import Opal.Syntax.CoreForm (CoreForm (..))
 import Opal.Syntax.Definition
 import Opal.Syntax.ScopeInfo qualified as ScopeInfo
 import Opal.Syntax.TH (syntax)
 import Opal.Syntax.Transformer
 import Opal.Writer (Display (..), putDocLn)
 
-import Prelude hiding (id)
+import Prelude hiding (id, mod)
 
 import System.Exit (exitFailure)
+
 import Text.Megaparsec (errorBundlePretty)
-import Opal.Binding.Environment (Environment)
-import qualified Opal.Binding.Environment as Environment
+import Opal.Module
 
 -- Expand - Basic Operations ----------------------------------------------------
 
 -- | TODO: docs
 --
 -- @since 1.0.0
-runExpandFile :: FilePath -> IO Module
+runExpandFile :: FilePath -> IO Syntax
 runExpandFile filepath = do
   runFileReader filepath >>= \case
     Left  exn -> fail (errorBundlePretty exn)
@@ -96,10 +113,14 @@ runExpandAndParseFile filepath = do
 -- | TODO: docs
 --
 -- @since 1.0.0
-runExpandSyntax :: Syntax -> IO (Module, ExpandState)
+runExpandSyntax :: Syntax -> IO (Syntax, ExpandState)
 runExpandSyntax stx = do
   let stx' = syntaxScope Nothing def stx
-  runExpand def def (expandTopLevel stx') >>= \case
+  (result, logs) <- runExpand def def (expand stx')
+
+  putDocLn 80 (display logs)
+
+  case result of
     Left  exn -> do
       putDocLn 80 (display exn)
       exitFailure
@@ -111,13 +132,28 @@ runExpandSyntax stx = do
 runExpandAndParseSyntax :: Syntax -> IO (SExp, ExpandState)
 runExpandAndParseSyntax stx = do
   let stx' = syntaxScope Nothing def stx
-  runExpand def def (expandAndParseSyntax stx') >>= \case
+  (result, logs) <- runExpand def def (expandAndParseSyntax stx')
+
+  putDocLn 80 (display logs)
+
+  case result of
     Left  exn -> do
       putDocLn 80 (display exn)
       exitFailure
     Right rx  -> pure rx
 
 -- Expand - Config Operations --------------------------------------------------
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+guardModuleContext :: Syntax -> Expand ()
+guardModuleContext stx = do
+  actual <- view expandContext
+  let expected :: [ExpansionContext]
+      expected = [ContextTopLevel, ContextModuleBegin]
+   in unless (any (actual ==) expected) do
+        throwError (ErrorBadContext stx expected actual)
 
 -- | TODO: docs
 --
@@ -145,7 +181,14 @@ guardDefinitionContext stx = do
 --
 -- @since 1.0.0
 withTransformers :: [(Symbol, Transformer)] -> Expand a -> Expand a
-withTransformers transExprs = local (over expandEnvironment update)
+withTransformers transExprs next = do
+  prev <- use expandEnvironment
+  expandEnvironment %= update
+  result <- catchError next \exn -> do
+    expandEnvironment .= prev
+    throwError exn
+  expandEnvironment .= prev
+  pure result
   where
     update :: Environment -> Environment
     update env = foldr (uncurry Environment.insert) env transExprs
@@ -154,18 +197,18 @@ withTransformers transExprs = local (over expandEnvironment update)
 --
 -- @since 1.0.0
 withVarTransformers :: [(Symbol, Identifier)] -> Expand a -> Expand a
-withVarTransformers = withTransformers . map (fmap TfmVar)
+withVarTransformers = withValTransformers . map (fmap (DatumStx . review syntaxId))
 
 -- | TODO: docs
 --
 -- @since 1.0.0
 withValTransformers :: [(Symbol, Datum)] -> Expand a -> Expand a
-withValTransformers binds expand = do
+withValTransformers binds next = do
   binds' <- for binds \(id, val) -> do
     ref <- liftIO (newIORef val)
     pure (id, TfmVal ref)
 
-  withTransformers binds' expand
+  withTransformers binds' next
 
 -- | TODO: docs
 --
@@ -194,6 +237,24 @@ newBinding (Identifier s info) = do
 -- | TODO: docs
 --
 -- @since 1.0.0
+newIntroScope :: Expand Scope
+newIntroScope = do
+  sc <- newScope
+  expandIntroScopes %= ScopeSet.insert sc
+  pure sc
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+newUsageScope :: Expand Scope
+newUsageScope = do
+  sc <- newScope
+  expandUsageScopes %= ScopeSet.insert sc
+  pure sc
+
+-- | TODO: docs
+--
+-- @since 1.0.0
 scopeId :: Bool -> Scope -> Identifier -> Expand Identifier
 scopeId False sc id = pure (identifierScope Nothing sc id)
 scopeId True  sc id = do
@@ -209,116 +270,262 @@ scopeSyntax True  sc id = do
   ph <- view expandCurrentPhase
   pure (syntaxScope (Just ph) sc id)
 
+-- | TODO: docs
+--
+-- @since 1.0.0
+flipSyntax :: Scope -> Syntax -> Expand Syntax
+flipSyntax sc id = do
+  ph <- view expandCurrentPhase
+  pure (syntaxFlipScope ph sc id)
+
 -- Expand - Expand Operations --------------------------------------------------
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+expanderReadFile :: Identifier -> Expand Syntax
+expanderReadFile id = do
+  let filepath = "../../lib/" ++ symbolToString (id ^. idtSymbol) ++ ".opal"
+  result <- liftIO (runFileReader filepath)
+  case result of
+    Left  exn -> throwError (ExpandReaderError exn)
+    Right stx -> pure stx
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+expanderEval :: Maybe Scope -> SExp -> Expand Datum
+expanderEval sc expr = do
+  logExpand (LogEnterEval expr)
+
+  config <- viewEvalConfig
+  st0   <- useEvalState
+
+  result <- liftIO (runEvalSExp config st0 expr)
+
+  case result of
+    Left  exn        -> throwError (evalToExpandError exn)
+    Right (val, st1) -> do
+      expandBindingStore .= st1 ^. evalBindingStore
+      val <$ logExpand (LogExitEval val)
+  where
+    useEvalState :: Expand EvalState
+    useEvalState =
+      EvalState
+        <$> use expandBindingStore
+        <*> use expandIntroScopes
+        <*> use expandUsageScopes
+
+    viewEvalConfig :: Expand EvalConfig
+    viewEvalConfig = do
+      env <- use expandEnvironment
+      ph  <- view expandCurrentPhase
+      pure (EvalConfig env ph sc)
+
+    evalToExpandError :: EvalError -> ExpandError
+    evalToExpandError (EvalNotBound exn) = ExpandNotBound exn
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+expanderParse :: Syntax -> Expand SExp
+expanderParse stx = do
+  logExpand (LogEnterParse stx)
+
+  phase <- view expandCurrentPhase
+  store <- use expandBindingStore
+
+  let config = (ParseConfig store phase)
+  result <- liftIO (runParseSyntax config stx)
+  case result of
+    Left  exn  -> throwError (parseToExpandError exn)
+    Right sexp -> do
+      logExpand (LogExitParse sexp)
+      pure sexp
+  where
+    parseToExpandError :: ParseError -> ExpandError
+    parseToExpandError (ParseErrorAmbiguous x)    = ExpandAmbiguous x
+    parseToExpandError (ParseErrorEmptyApp  info) = ErrorBadSyntax CoreApp (SyntaxList [] info)
+    parseToExpandError (ParseErrorCore      exn)  = case exn of
+      ParseErrorLambda x -> ErrorBadSyntax CoreLambda x
+      ParseErrorQuote  x -> ErrorBadSyntax CoreQuote x
+      ParseErrorSyntax x -> ErrorBadSyntax CoreSyntax x
 
 -- | TODO: docs
 --
 -- @since 1.0.0
 expandAndParseSyntax :: Syntax -> Expand SExp
 expandAndParseSyntax stx = do
-  stx'   <- expandSyntax stx
-  config <- useParseConfig
-  result <- liftIO (runParseSyntax config stx')
-  case result of
-    Left  exn  -> throwError (parseToExpandError exn)
-    Right sexp -> pure sexp
+  stx' <- expand stx
+  expanderParse stx'
+
+-- Expand - Expansion ----------------------------------------------------------
+
+dispatch :: Transformer -> Syntax -> Expand Syntax
+dispatch (TfmCore core) stx = dispatchCoreForm core stx
+dispatch (TfmVal ref)   stx = dispatchTransformer ref stx
+
+dispatchCoreForm :: CoreForm -> Syntax -> Expand Syntax
+dispatchCoreForm CoreBegin stx = case stx of
+  [syntax| (begin ?exprs ...+) |] -> expandBegin exprs
+  _ -> throwError (ErrorBadSyntax CoreBegin stx)
+dispatchCoreForm CoreDefine stx = do
+  guardDefinitionContext stx
+  throwError (ErrorBadSyntax CoreDefine stx)
+dispatchCoreForm CoreDefineSyntax stx = do
+  guardDefinitionContext stx
+  throwError (ErrorBadSyntax CoreDefineSyntax stx)
+dispatchCoreForm CoreLambda stx = case stx of
+  [syntax| (lambda (?args:id ...) ?expr) |] -> expandLambda args expr
+  _ -> throwError (ErrorBadSyntax CoreLambda stx)
+dispatchCoreForm CoreLetRec stx = case stx of
+  [syntax| (letrec-syntaxes+values (?trans ...) (?vals ...) ?expr) |] -> do
+    transIds <- for trans \case
+      [syntax| (?transId:id ?transExpr) |] -> pure (transId, transExpr)
+      _ -> throwError (ErrorBadSyntax CoreLetRec stx)
+
+    valIds <- for vals \case
+      [syntax| (?valId:id ?valExpr) |] -> pure (valId, valExpr)
+      _ -> throwError (ErrorBadSyntax CoreLetRec stx)
+
+    expandLetRec transIds valIds expr
+  _ -> throwError (ErrorBadSyntax CoreLetRec stx)
+dispatchCoreForm CoreModule stx = case stx of
+  [syntax| (module ?name:id ?imports ?exports ?expr) |] -> do
+    mod <- expandModule name imports exports expr
+    pure (moduleToSyntax mod)
+  _ -> throwError (ErrorBadSyntax CoreModule stx)
+dispatchCoreForm CoreQuote stx = case stx of
+  [syntax| (quote ?expr) |] -> expandQuote expr
+  _ -> throwError (ErrorBadSyntax CoreQuote stx)
+dispatchCoreForm CoreSyntax stx = case stx of
+  [syntax| (quote-syntax ?expr) |] -> expandQuoteSyntax expr
+  _ -> throwError (ErrorBadSyntax CoreSyntax stx)
+dispatchCoreForm core stx = do
+  undefined
+
+dispatchVariable :: Identifier -> Syntax -> Expand Syntax
+dispatchVariable id stx = do
+  logExpand (LogVariable id)
+  applyRenameTransformer id stx
+
+dispatchTransformer :: IORef Datum -> Syntax -> Expand Syntax
+dispatchTransformer ref stx = do
+  val <- liftIO (readIORef ref)
+
+  case val of
+    DatumLam fun         -> applyTransformer fun stx
+    DatumStx transformer -> case preview syntaxId stx of
+      Nothing -> expand [syntax| (?transformer ?stx) |]
+      Just id -> dispatchVariable id stx
+    _ -> do
+      let transformer = datumToSyntax (stx ^. syntaxInfo) val
+      expand [syntax| (?transformer ?stx) |]
+
+applyTransformer :: Lambda -> Syntax -> Expand Syntax
+applyTransformer t stx = do
+  logExpand (LogEnterMacro stx)
+
+  introScope <- newIntroScope
+  introStx   <- flipSyntax introScope stx
+
+  -- In a definition context, we need use-site scopes
+  usageStx <- maybeCreateUseSiteScope introStx
+
+  transformed <- do
+    logExpand (LogEnterMacroExpand usageStx)
+
+    expr   <- expanderParse [syntax| (?t:lam ?usageStx) |]
+    result <- expanderEval (Just introScope) expr
+
+    case result of
+      DatumStx stx' -> do
+        logExpand (LogExitMacroExpand usageStx)
+        pure stx'
+      _ ->
+        error ("macro expansion did not return a syntax object")
+        -- throwError (ErrorBadSyntax _ usageStx)
+
+  -- Flip the introduction scope after the transformer has been applied.
+  resultStx <- flipSyntax introScope transformed
+
+  -- In a definition context, we need to add the inside-edge scope to
+  -- any expansion result
+  postStx <- maybeCreateInsideEdgeScope resultStx
+
+  logExpand (LogExitMacro resultStx)
+
+  pure postStx
   where
-    useParseConfig :: Expand ParseConfig
-    useParseConfig = do
-      phase <- view expandCurrentPhase
-      store <- use expandBindingStore
-      pure (ParseConfig store phase)
+    maybeCreateUseSiteScope :: Syntax -> Expand Syntax
+    maybeCreateUseSiteScope s = do
+      ctx <- view expandContext
+      if ctx == ContextDefinition
+        then do
+          usageScope <- newUsageScope
+          scopeSyntax True usageScope s
+        else pure s
 
-    parseToExpandError :: ParseError -> ExpandError
-    parseToExpandError (ParseErrorAmbiguous x)    = ExpandErrorAmbiguous x
-    parseToExpandError (ParseErrorEmptyApp  info) = ErrorBadSyntax (SyntaxList [] info)
-    parseToExpandError (ParseErrorCore      exn)  = case exn of
-      ParseErrorLambda x -> ErrorBadSyntax x
-      ParseErrorQuote  x -> ErrorBadSyntax x
-      ParseErrorSyntax x -> ErrorBadSyntax x
+    maybeCreateInsideEdgeScope :: Syntax -> Expand Syntax
+    maybeCreateInsideEdgeScope s = do
+      ctx <- view expandContext
+      if ctx == ContextDefinition
+        then do
+          usageScope <- newUsageScope
+          scopeSyntax True usageScope s
+        else pure s
 
--- | TODO: docs
---
--- @since 1.0.0
-expandSyntax :: Syntax -> Expand Syntax
-expandSyntax [syntax| (?fun:id ?stxs ...) |] = expandSyntaxListId fun stxs
-expandSyntax [syntax| (?stxs ...)         |] = expandSyntaxList stxs
-expandSyntax [syntax| ?stx:id             |] = expandId stx
-expandSyntax [syntax| ?stx                |] = pure stx
+applyRenameTransformer :: Identifier -> Syntax -> Expand Syntax
+applyRenameTransformer id stx = do
+  introScope <- newIntroScope
+  introId    <- scopeId True introScope id
+  pure (syntaxTrackOrigin [syntax| ?introId:id |] stx)
 
--- | TODO: docs
---
--- @since 1.0.0
+expand :: Syntax -> Expand Syntax
+expand stx = do
+  logExpand (LogVisitSyntax stx)
+  case stx of
+    [syntax| ?id:id             |] -> expandId id
+    [syntax| (?id:id ?stxs ...) |] -> expandIdApplication id stxs
+    [syntax| (?stxs ...)        |] -> expandApplication stxs
+    SyntaxVal val info             -> pure (SyntaxVal val info)
+
 expandId :: Identifier -> Expand Syntax
 expandId id = do
-  tfm <- lookupEnvironment id
-  transformerToId tfm
-  where
-    transformerToId :: Transformer -> Expand Syntax
-    transformerToId (TfmVar var) = pure (identifierToSyntax var)
-    transformerToId (TfmVal loc) = do
-      val <- liftIO (readIORef loc)
-      pure (datumToSyntax (id ^. idtInfo) val)
-    transformerToId _ = pure (identifierToSyntax id)
+  t <- lookupEnvironment id
+  dispatch t [syntax| ?id:id |]
+
+expandIdApplication :: Identifier -> [Syntax] -> Expand Syntax
+expandIdApplication id stxs = do
+  t <- lookupEnvironment id
+  dispatch t [syntax| (?id:id ?stxs ...) |]
+
+expandApplication :: [Syntax] -> Expand Syntax
+expandApplication stxs = do
+  results <- traverse expand stxs
+  pure [syntax| (?results ...) |]
+
+-- Expand - Expansion - Core Forms ---------------------------------------------
 
 -- | TODO: docs
 --
 -- @since 1.0.0
-expandSyntaxList :: [Syntax] -> Expand Syntax
-expandSyntaxList stxs = do
-  estxs <- traverse expandSyntax stxs
-  pure [syntax| (?estxs ...) |]
+expandLambda :: [Identifier] -> Syntax -> Expand Syntax
+expandLambda ids expr = do
+  guardExpressionContext [syntax| (lambda (?ids:id ...) ?expr) |]
 
--- | TODO: docs
---
--- @since 1.0.0
-expandSyntaxListId :: Identifier -> [Syntax] -> Expand Syntax
-expandSyntaxListId idt stxs = do
-  expandId idt >>= \case
-    [syntax| begin                  |] -> expandBegin stxs
-    [syntax| lambda                 |] -> expandLambda stxs
-    [syntax| letrec-syntaxes+values |] -> case [syntax| (?stxs ...) |] of
-      stx@[syntax| ((?transBinds ...) (?valBinds ...) ?body) |] -> do
-        transBinds' <- for transBinds \case
-          [syntax| (?transId:id ?transExpr) |] -> pure (transId, transExpr)
-          _ -> throwError (ErrorBadSyntax stx)
+  sc <- newScope
 
-        valBinds' <- for valBinds \case
-          [syntax| (?valId:id ?valExpr) |] -> pure (valId, valExpr)
-          _ -> throwError (ErrorBadSyntax stx)
+  bindings <- for ids \id -> do
+    id'  <- scopeId True sc id
+    bind <- newBinding id'
+    pure (bind, id')
 
-        expandLetRec transBinds' valBinds' body
-      stx -> throwError (ErrorBadSyntax stx)
-    [syntax| quote                  |] -> expandQuote stxs
-    [syntax| quote-syntax           |] -> expandQuoteSyntax stxs
-    [syntax| ?stx                   |] -> do
-      estxs <- traverse expandSyntax stxs
-      pure [syntax| (?stx ?estxs ...) |]
-
-
--- | TODO: docs
---
--- @since 1.0.0
-expandLambda :: [Syntax] -> Expand Syntax
-expandLambda stxs = do
-  guardExpressionContext [syntax| (lambda ?stxs ...) |]
-
-  case [syntax| (?stxs ...) |] of
-    [syntax| ((?args:id ...) ?body) |] -> do
-      sc <- newScope
-
-      bindings <- for args \arg -> do
-        arg' <- scopeId True sc arg
-        bind <- newBinding arg'
-        pure (bind, arg')
-
-      withVarTransformers bindings do
-        let eargs = map snd bindings
-        stx'  <- scopeSyntax True sc body
-        ebody <- expandSyntax stx'
-        pure [syntax| (lambda (?eargs:id ...) ?ebody) |]
-    stx -> do
-      throwError (ErrorBadSyntax stx)
+  withVarTransformers bindings do
+    let args = map snd bindings
+    stx'   <- scopeSyntax True sc expr
+    result <- expand stx'
+    pure [syntax| (lambda (?args:id ...) ?result) |]
 
 -- | Expansion subroutine for the @letrec-syntaxes+values@ core syntactic form.
 --
@@ -332,11 +539,11 @@ expandLetRec ::
   Syntax ->
   -- | TODO: docs
   Expand Syntax
-expandLetRec transExprs valExprs body = do
+expandLetRec transExprs valExprs expr = do
   guardExpressionContext
     let stxs = map (\(id, stx) -> [syntax| (?id:id ?stx) |]) transExprs
         vals = map (\(id, stx) -> [syntax| (?id:id ?stx) |]) transExprs
-     in [syntax| (letrec-syntaxes+values (?stxs ...) (?vals ...) ?body) |]
+     in [syntax| (letrec-syntaxes+values (?stxs ...) (?vals ...) ?expr) |]
 
   sc <- newScope
 
@@ -351,277 +558,214 @@ expandLetRec transExprs valExprs body = do
     transExpr' <- scopeSyntax True sc transExpr
 
     binder <- newBinding transId'
-    expr   <- nextPhase (expandAndParseSyntax transExpr')
+    result <- nextPhase (expandAndParseSyntax transExpr')
 
-    case expr of
+    case result of
       SVal val -> pure (binder, val)
-      _        -> throwError (ErrorBadSyntax transExpr')
+      _        -> throwError (ErrorBadSyntax CoreLetRec transExpr')
 
   let letBinds = map (\(idt, _, b) -> (b, idt)) valBinds
 
   withVarTransformers letBinds do
     withValTransformers transBinds do
       vals <- for valBinds \(valId, valExpr, _) -> do
-        expr <- expandSyntax valExpr
-        pure [syntax| (?valId:id ?expr) |]
+        result <- expand valExpr
+        pure [syntax| (?valId:id ?result) |]
 
-      pure [syntax| (letrec (?vals ...) ?body) |]
+      scoped <- scopeSyntax True sc expr
+      result <- expand scoped
 
--- | TODO: docs
---
--- @since 1.0.0
-expandQuote :: [Syntax] -> Expand Syntax
-expandQuote stxs = do
-  guardExpressionContext [syntax| (quote ?stxs ...) |]
-  case [syntax| (?stxs ...) |] of
-    [syntax| (?stx) |] -> pure [syntax| (quote ?stx) |]
-    stx                -> throwError (ErrorBadSyntax stx)
+      pure [syntax| (letrec (?vals ...) ?result) |]
 
 -- | TODO: docs
 --
 -- @since 1.0.0
-expandQuoteSyntax :: [Syntax] -> Expand Syntax
-expandQuoteSyntax stxs = do
-  guardExpressionContext [syntax| (quote-syntax ?stxs ...) |]
+expandQuote :: Syntax -> Expand Syntax
+expandQuote stx = do
+  guardExpressionContext [syntax| (quote ?stx) |]
 
-  case [syntax| (?stxs ...) |] of
-    [syntax| (?stx) |] -> do
-      phase  <- view expandCurrentPhase
-      intros <- use expandIntroScopes
-      let pstx = syntaxPrune phase intros stx
-      pure [syntax| (quote-syntax ?pstx) |]
-    stx ->
-      throwError (ErrorBadSyntax stx)
-
--- Expansion - Top-Level -------------------------------------------------------
+  pure [syntax| (quote ?stx) |]
 
 -- | TODO: docs
 --
 -- @since 1.0.0
-expandTopLevel :: Syntax -> Expand Module
-expandTopLevel [syntax| (?fun:id ?stxs ...) |] = do
-  expandId fun >>= \case
-    [syntax| module |] -> expandModule stxs
-    other -> do
-      throwError (ErrorBadSyntax [syntax| (?other ?stxs ...) |])
-expandTopLevel stx =
-  throwError (ErrorBadSyntax stx)
+expandQuoteSyntax :: Syntax -> Expand Syntax
+expandQuoteSyntax expr = do
+  guardExpressionContext [syntax| (quote-syntax ?expr) |]
 
--- Expansion - Modules ---------------------------------------------------------
+  phase  <- view expandCurrentPhase
+  intros <- use expandIntroScopes
+  let result = syntaxPrune phase intros expr
 
--- | TODO: docs
---
--- @since 1.0.0
-expandModule :: [Syntax] -> Expand Module
-expandModule stxs = case [syntax| (?stxs ...) |] of
-  [syntax| (?name:id ?defns ...) |] -> do
-    expandModuleBegin defns
+  pure [syntax| (quote-syntax ?result) |]
 
-    Module (ModuleName (name ^. idtSymbol))
-      <$> expandModuleImports defns
-      <*> expandModuleExports defns
-      <*> use expandNamespace
-  stx -> do
-    throwError (ErrorBadSyntax stx)
+-- Expand - Expansion - Definitions --------------------------------------------
 
--- | TODO: docs
---
--- @since 1.0.0
-expandModuleImports :: [Syntax] -> Expand [(Phase, Symbol)]
-expandModuleImports = foldM run []
-  where
-    run :: [(Phase, Symbol)] -> Syntax -> Expand [(Phase, Symbol)]
-    run imports stx = case stx of
-      [syntax| (?id:id ?stxs ...) |] -> do
-        ide <- expandId id
-        case [syntax| (?ide ?stxs ...) |] of
-          [syntax| (import ?paths:id ...) |] -> do
-              ph <- view expandCurrentPhase
-              pure (imports ++ map (\path -> (ph, path ^. idtSymbol)) paths)
-          [syntax| (import _ ...) |] ->
-            throwError (ErrorBadSyntax stx)
-          _ -> pure imports
-      _ ->
-        pure imports
+expandBegin :: NonEmpty Syntax -> Expand Syntax
+expandBegin stxs = do
+  guardExpressionContext [syntax| (begin ?stxs ...+) |]
 
--- | TODO: docs
---
--- @since 1.0.0
-expandModuleExports :: [Syntax] -> Expand [(Phase, Symbol)]
-expandModuleExports = foldM run []
-  where
-    run :: [(Phase, Symbol)] -> Syntax -> Expand [(Phase, Symbol)]
-    run exports stx = case stx of
-      [syntax| (?id:id ?stxs ...) |] -> do
-        ide <- expandId id
-        case [syntax| (?ide ?stxs ...) |] of
-          [syntax| (export ?paths:id ...) |] -> do
-              ph <- view expandCurrentPhase
-              pure (exports ++ map (\path -> (ph, path ^. idtSymbol)) paths)
-          [syntax| (export _ ...) |] ->
-            throwError (ErrorBadSyntax stx)
-          _ -> pure exports
-      _ ->
-        pure exports
+  outsideEdgeScope <- newScope
+  outsideEdgeStxs  <- traverse (scopeSyntax True outsideEdgeScope) stxs
 
--- | TODO: docs
---
--- @since 1.0.0
-expandModuleBegin :: [Syntax] -> Expand ()
-expandModuleBegin stxs = withModuleBeginContext do
+  begin <- preExpandBegin outsideEdgeStxs
+
+  insideEdgeScope <- newScope
+
+  let stx = beginToLetRec begin
+  result <- expand stx
+  scopeSyntax True insideEdgeScope result
+
+preExpandBegin :: NonEmpty Syntax -> Expand Begin
+preExpandBegin stxs = do
+  mut <- newMutVar []
+
+  withDefinitionContext do
+    for_ (NonEmpty.init stxs) \stx -> case stx of
+      [syntax| (?id:id ?_ ...) |] -> preExpandIdApplication mut id stx
+      _                           -> modifyMutVar' mut (++ [DefnExpr stx])
+
+  defns <- readMutVar mut
+  pure (Begin defns (NonEmpty.last stxs))
+
+preExpandCoreDefinition :: MutVar RealWorld [Definition] -> CoreForm -> Syntax -> Expand ()
+preExpandCoreDefinition defns CoreBegin stx = case stx of
+  [syntax| (begin ?stxs ...+) |] -> do
+    begin <- preExpandBegin stxs
+    modifyMutVar' defns (++ beginToDefinitions begin)
+  _ -> throwError (ErrorBadSyntax CoreBegin stx)
+preExpandCoreDefinition defns CoreDefine stx = do
+  defn <- preExpandDefine stx
+  modifyMutVar' defns (++ [DefnDefine defn])
+preExpandCoreDefinition defns CoreDefineSyntax stx = do
+  defn <- preExpandDefineSyntax stx
+  modifyMutVar' defns (++ [DefnSyntax defn])
+preExpandCoreDefinition defns _ stx = do
+  modifyMutVar' defns (++ [DefnExpr stx])
+
+preExpandDefine :: Syntax -> Expand Define
+preExpandDefine [syntax| (define ?id:id ?expr) |] = pure (Define id expr)
+preExpandDefine stx                               = throwError (ErrorBadSyntax CoreDefine stx)
+
+preExpandDefineSyntax :: Syntax -> Expand DefineSyntax
+preExpandDefineSyntax [syntax| (define ?id:id ?expr) |] = pure (DefineSyntax id expr)
+preExpandDefineSyntax stx                               = throwError (ErrorBadSyntax CoreDefineSyntax stx)
+
+preExpandIdApplication :: MutVar RealWorld [Definition] -> Identifier -> Syntax -> Expand ()
+preExpandIdApplication defns id stx = do
+  transformer <- lookupEnvironment id
+  case transformer of
+    TfmCore core -> do
+      guardDefinitionContext stx
+      preExpandCoreDefinition defns core stx
+    TfmVal _ -> do
+      modifyMutVar' defns (++ [DefnExpr stx])
+
+-- Expand - Expansion - Modules ------------------------------------------------
+
+expandModule :: Identifier -> Syntax -> Syntax -> Syntax -> Expand Module
+expandModule name imports exports expr = do
+  guardModuleContext [syntax| (module ?imports ?exports ?expr) |]
+
   ph <- view expandCurrentPhase
-  for_ stxs \case
-    [syntax| (?fun:id ?args ...) |] -> do
-      expandId fun >>= \case
-        [syntax| import |] -> pure ()
-        [syntax| export |] -> pure ()
-        [syntax| ?id:id |] -> do
-          defn <- partialExpandDefinition [syntax| (?id:id ?args ...) |]
-          expandNamespace . namespaceDefinitions %= mappend [(ph, defn)]
-        stx -> do
-          throwError (ErrorBadSyntax stx)
-    stx -> do
-      throwError (ErrorBadSyntax stx)
 
--- Expansion - Definitions -----------------------------------------------------
+  importIds <- fmap (map (ph,)) (expandImports imports)
 
--- | TODO: docs
---
--- @since 1.0.0
-partialExpandDefinition :: Syntax -> Expand Definition
-partialExpandDefinition stx = case stx of
-  [syntax| (?fun:id ?args ...) |] -> withDefinitionContext do
-    expandId fun >>= \case
-      [syntax| begin         |] -> do
-        partialExpandBegin args (pure . DefnBegin)
-      [syntax| define        |] -> do
-        defn <- partialExpandDefine stx
-        pure (DefnDefine defn)
-      [syntax| define-syntax |] -> do
-        defn <- partialExpandDefineSyntax stx
-        pure (DefnDefineSyntax defn)
-      _ -> pure (DefnSyntax stx)
-  _ -> pure (DefnSyntax stx)
+  exportIds <- fmap (map (ph,)) (expandExports exports)
 
--- Expansion - Definitions - Begin ---------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
--- expandBegin :: [Syntax] -> Expand Syntax
--- expandBegin stxs = do
---   guardDefinitionContext [syntax| (begin ?stxs ...) |]
-
---   partialExpandBegin stxs \begin -> do
---     defns <- for (begin ^. beginDefns) \case
---       DefnBegin defn -> liftIO do
---         putStrLn ("Internal error: nested begin did not splice")
---         putDocLn 80 (display defn)
---         exitFailure
---       DefnDefine (Define id stx) -> do
---         stx' <- expandSyntax stx
---         pure (DefnDefine (Define id stx'))
---       DefnDefineSyntax (DefineSyntax id stx) -> do
---         pure (DefnDefineSyntax (DefineSyntax id stx))
---       DefnSyntax stx -> do
---         stx' <- expandSyntax stx
---         pure (DefnSyntax stx')
-
---     final <- expandSyntax (begin ^. beginFinal)
-
---     pure (beginToSyntax (Begin (SyntaxBody defns final)))
-
-
--- | TODO: docs
---
--- @since 1.0.0
--- partialExpandBegin :: forall a. [Syntax] -> (Begin -> Expand a) -> Expand a
--- partialExpandBegin stxs0 k = do
---   guardDefinitionContext [syntax| (begin ?stxs0 ...) |]
---   case [syntax| (?stxs0 ...) |] of
---     [syntax| (?stxs ...+) |] -> run [] stxs
---     stx                      -> throwError (ErrorBadSyntax stx)
---   where
---     run :: [Definition] -> NonEmpty Syntax -> Expand a
---     run defns (stx :| stxs) = case NonEmpty.nonEmpty stxs of
---       Nothing ->
---         k (Begin (SyntaxBody defns stx))
---       Just stxs' -> partialExpandDefinition stx >>= \case
---         DefnBegin defn ->
---           run (defns ++ beginToDefinitions defn) stxs'
---         DefnDefine defn@(Define id _) -> do
---           binder <- newBinding id
---           withVarTransformers [(binder, id)] do
---             run (defns ++ [DefnDefine defn]) stxs'
---         DefnDefineSyntax defn@(DefineSyntax id stx') -> do
---           expr <- nextPhase (expandAndParseSyntax stx')
---           case expr of
---             SVal val -> do
---               binder <- newBinding id
---               withValTransformers [(binder, val)] do
---                 run (defns ++ [DefnDefineSyntax defn]) stxs'
---             _ -> do
---               let stxDefn = defineSyntaxToSyntax defn
---               throwError (ErrorBadSyntax stxDefn)
---         defn ->
---           run (defns ++ [defn]) stxs'
-
--- Expansion - Definitions - Define --------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-partialExpandDefine :: Syntax -> Expand Define
-partialExpandDefine stx0 = do
-  guardDefinitionContext stx0
-
-  case stx0 of
-    [syntax| (?id:id ?stx) |] -> pure (Define id stx)
-    _                         -> throwError (ErrorBadSyntax stx0)
-
--- Expansion - Definitions - DefineSyntax --------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-partialExpandDefineSyntax :: Syntax -> Expand DefineSyntax
-partialExpandDefineSyntax stx0 = do
-  guardDefinitionContext stx0
-
-  case stx0 of
-    [syntax| (?id:id ?stx) |] -> pure (DefineSyntax id stx)
-    _                         -> throwError (ErrorBadSyntax stx0)
-
--- Expansion -- Definitions - Begin --------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-expandDefinition :: Syntax -> Expand Definition
-expandDefinition stx = do
-  guardDefinitionContext stx
-
-  case stx of
+  moduleNs <- case expr of
     [syntax| (?id:id ?stxs ...) |] -> do
-      binder  <- resolveId id
-      env
-      _
-    _ -> pure (DefnSyntax stx)
+      transformer <- lookupEnvironment id
+      case transformer of
+        TfmCore CoreModuleBegin -> expandModuleBegin stxs
+        _ -> throwError (ErrorBadSyntax CoreModuleBegin expr)
+    _ -> throwError (ErrorBadSyntax CoreModuleBegin expr)
 
--- | TODO: docs
---
--- @since 1.0.0
-expandBegin :: Syntax -> Expand Begin
-expandBegin stx = do
-  guardExpressionContext stx
+  pure (Module name importIds exportIds moduleNs)
 
-  case _ of
-    [syntax| (?id:id ?stxs ...) |] -> do
-      _
-    _ -> throwError (ErrorBadSyntax stx)
+expandImports :: Syntax -> Expand [Identifier]
+expandImports stx = case stx of
+  [syntax| (?id:id ?ids:id ...) |] -> do
+    transformer <- lookupEnvironment id
+    case transformer of
+      TfmCore CoreImport -> do
+        for_ ids \path -> do
+          mod   <- importId path
+          defns <- moduleExportDefns mod
+          liftIO (putDocLn 80 $ display defns)
+        pure ids
+      _ ->
+        throwError (ErrorBadSyntax CoreImport stx)
+  _ -> throwError (ErrorBadSyntax CoreImport stx)
+  where
+    importId :: Identifier -> Expand Module
+    importId id = do
+      expr <- expanderReadFile id
+      case syntaxScope Nothing def expr of
+        [syntax| (module ?name:id ?imports ?exports ?body) |] -> expandModule name imports exports body
+        _ -> throwError (ErrorBadSyntax CoreImport expr)
 
--- | TODO: docs
---
--- @since 1.0.0
-partialExpandBegin :: Syntax -> Expand Begin
-partialExpandBegin stx = _
+    lookupDefinition :: Identifier -> [(PhaseShift, Definition)] -> Maybe (PhaseShift, Definition)
+    lookupDefinition _  []       = Nothing
+    lookupDefinition id (x : xs) = case x of
+      (ph, DefnDefine defn)
+        | id == defn ^. defineId -> Just (ph, DefnDefine defn)
+        | otherwise              -> lookupDefinition id xs
+      (ph, DefnSyntax defn)
+        | id == defn ^. defineSyntaxId -> Just (ph, DefnSyntax defn)
+        | otherwise                    -> lookupDefinition id xs
+      (_,  DefnExpr _) -> lookupDefinition id xs
+
+    moduleExportDefn :: Module -> [(Phase, Definition)] -> (Phase, Identifier) -> Expand [(Phase, Definition)]
+    moduleExportDefn mod rest (ph, id) = do
+      let moduleDefns = mod ^. moduleDefinitions
+      case lookupDefinition id moduleDefns of
+        Nothing         -> pure rest
+        Just (sh, defn) -> pure ((ph `phasePlus` sh, defn) : rest)
+
+    moduleExportDefns :: Module -> Expand [(Phase, Definition)]
+    moduleExportDefns mod = do
+      let exportIds   = mod ^. moduleExports
+      foldM (moduleExportDefn mod) [] exportIds
+
+expandExports :: Syntax -> Expand [Identifier]
+expandExports stx@[syntax| (?id:id ?ids:id ...) |] = do
+  transformer <- lookupEnvironment id
+  case transformer of
+    TfmCore CoreExport -> pure ids
+    _ -> throwError (ErrorBadSyntax CoreExport stx)
+expandExports stx = throwError (ErrorBadSyntax CoreExport stx)
+
+expandModuleBegin :: [Syntax] -> Expand Namespace
+expandModuleBegin stxs = do
+  ph <- view expandCurrentPhase
+
+  expandNamespace .= newNamespace ph
+
+  withModuleBeginContext do
+    for_ stxs \stx -> do
+      defn <- expandModuleBeginForm stx
+      expandNamespace %= over namespaceDefinitions (++ [(0, defn)])
+
+  use expandNamespace
+  where
+    expandModuleBeginForm :: Syntax -> Expand Definition
+    expandModuleBeginForm stx = case stx of
+      [syntax| (?id:id ?_ ...) |] -> do
+        transformer <- lookupEnvironment id
+
+        case transformer of
+          TfmCore CoreDefine -> do
+            defn <- preExpandDefine stx
+            pure (DefnDefine defn)
+          TfmCore CoreDefineSyntax -> do
+            defn <- preExpandDefineSyntax stx
+            pure (DefnSyntax defn)
+          TfmCore core -> do
+            throwError (ErrorBadSyntax core stx)
+          TfmVal {} -> do
+            throwError (ErrorBadContext stx [ContextModuleBegin] ContextExpression)
+      _ ->
+        throwError (ErrorBadContext stx [ContextModuleBegin] ContextExpression)
+
+

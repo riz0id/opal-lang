@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskellQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_HADDOCK show-extensions #-}
 
 -- |
@@ -18,14 +18,12 @@ module Opal.Error.ErrorCode
     ErrorCode (..)
     -- ** Optics
   , errorCodeNamespace
-  , errorCodeUUID
+  , errorCodeNumber
     -- ** Readers
   , readErrorCode
   , readErrorCodeUUID
   )
 where
-
-import Control.Lens (Lens', lens)
 
 import Data.Char (isAlpha, isUpper)
 import Data.Functor (void)
@@ -42,6 +40,7 @@ import Prelude hiding (id)
 
 import Text.Megaparsec (MonadParsec (..), single)
 import Text.Megaparsec.Char.Lexer (decimal)
+import Opal.Common.Lens (defineLenses)
 
 -- ErrorCode -------------------------------------------------------------------
 
@@ -53,10 +52,12 @@ data ErrorCode = ErrorCode
   { error_code_namespace :: String
     -- ^ The namespace of the error code. The namespace is a prefix to the error
     -- code's UUID.
-  , error_code_uuid      :: {-# UNPACK #-} !Word16
+  , error_code_number    :: {-# UNPACK #-} !Word16
     -- ^ A unique identifier for the error code.
   }
   deriving (Eq, Lift, Ord)
+
+$(defineLenses ''ErrorCode)
 
 -- | @since 1.0.0
 instance Display ErrorCode where
@@ -72,20 +73,6 @@ instance Pattern ErrorCode where
 -- | @since 1.0.0
 instance Show ErrorCode where
   show = Doc.pretty 80 . display
-
--- ErrorCode - Optics ----------------------------------------------------------
-
--- | Lens focusing on the 'error_code_namespace' field of a 'ErrorCode'.
---
--- @since 1.0.0
-errorCodeNamespace :: Lens' ErrorCode String
-errorCodeNamespace = lens error_code_namespace \s x -> s { error_code_namespace = x }
-
--- | Lens focusing on the 'error_code_uuid' field of a 'ErrorCode'.
---
--- @since 1.0.0
-errorCodeUUID :: Lens' ErrorCode Word16
-errorCodeUUID = lens error_code_uuid \s x -> s { error_code_uuid = x }
 
 -- ErrorCode - Readers ---------------------------------------------------------
 

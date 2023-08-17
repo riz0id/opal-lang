@@ -4,6 +4,7 @@
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE QuasiQuotes                #-}
 {-# OPTIONS_HADDOCK show-extensions #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module      :  Opal.Expander.Monad
@@ -23,10 +24,7 @@ module Opal.Expander.Monad
     Expand (..)
     -- ** Basic Operations
   , runExpand
-    -- * ExpandConfig
-  , ExpandConfig (..)
-    -- ** Basic Operations
-  , coreExpandConfig
+  , logExpand
   , resolveId
   , lookupEnvironment
   , withTopLevelContext
@@ -34,6 +32,10 @@ module Opal.Expander.Monad
   , withModuleBeginContext
   , withDefinitionContext
   , withExpressionContext
+    -- * ExpandConfig
+  , ExpandConfig (..)
+    -- ** Basic Operations
+  , coreExpandConfig
     -- ** Lenses
   , expandEnvironment
   , expandCurrentPhase
@@ -52,39 +54,63 @@ module Opal.Expander.Monad
     -- ** Basic Operations
   , expansionContextSymbol
   , expansionContextString
+    -- * ExpansionLog
+  , ExpansionLog (..)
   )
 where
 
-import Control.Lens (Lens', lens, set, use, view, (^.))
+import Control.Lens (set, use, view, (^.))
 
 import Control.Monad.Except (ExceptT, MonadError (..), runExceptT)
 import Control.Monad.IO.Class (MonadIO (..))
+import Control.Monad.Primitive (PrimMonad (..))
 import Control.Monad.Reader (MonadReader (..), ReaderT (..))
 import Control.Monad.State.Strict (MonadState (..), StateT(..))
+import Control.Monad.Writer (MonadWriter (..), WriterT (..))
 
-import Data.Default (Default (..))
 import Data.Function ((&))
+import Data.Text (Text)
 
-import GHC.Generics (Generic)
+import GHC.Exts (RealWorld)
 
-import Opal.Binding.BindingStore (BindingStore)
-import Opal.Binding.BindingStore qualified as BindingStore
-import Opal.Binding.Environment (Environment, coreEnvironment)
 import Opal.Binding.Environment qualified as Environment
-import Opal.Common.Phase (Phase)
 import Opal.Common.Scope (MonadScope (..))
-import Opal.Common.ScopeSet (ScopeSet)
-import Opal.Common.Symbol (MonadGenSym (..), Symbol, stringToSymbol)
-import Opal.Error (Error (..), ErrorAmbiguous, ErrorNotInScope)
+import Opal.Common.Symbol (MonadGenSym (..), Symbol)
+import Opal.Error
+  ( Error (..)
+  , ErrorAmbiguous
+  , ErrorNotBound (..)
+  , ErrorNotInScope
+  )
 import Opal.Error.ErrorCode.TH (makeErrorCode)
-import Opal.Module (Namespace (..))
+import Opal.Reader (ReaderError)
 import Opal.Resolve (ResolveError (..), resolve)
 import Opal.Syntax
+import Opal.Syntax.CoreForm (CoreForm)
 import Opal.Syntax.Transformer (Transformer(..))
 import Opal.Writer (Display (..), Doc, (<+>))
 import Opal.Writer qualified as Doc
+import Opal.Expander.State
+  ( ExpandState(..)
+  , expandBindingStore
+  , expandEnvironment
+  , expandIntroScopes
+  , expandNamespace
+  , expandUsageScopes
+  )
+import Opal.Expander.Config
+  ( ExpandConfig (..)
+  , ExpansionContext (..)
+  , coreExpandConfig
+  , expandCurrentPhase
+  , expandContext
+  , expansionContextString
+  , expansionContextSymbol
+  )
 
 import Prelude hiding (id)
+
+import Text.Megaparsec (ParseErrorBundle, errorBundlePretty)
 
 -- Expand -----------------------------------------------------------------------
 
@@ -92,7 +118,7 @@ import Prelude hiding (id)
 --
 -- @since 1.0.0
 newtype Expand a = Expand
-  { unExpand :: ReaderT ExpandConfig (StateT ExpandState (ExceptT ExpandError IO)) a }
+  { unExpand :: ReaderT ExpandConfig (StateT ExpandState (ExceptT ExpandError (WriterT [ExpansionLog] IO))) a }
   deriving newtype
     ( Functor
     , Applicative
@@ -101,6 +127,7 @@ newtype Expand a = Expand
     , MonadError ExpandError
     , MonadReader ExpandConfig
     , MonadState ExpandState
+    , MonadWriter [ExpansionLog]
     )
 
 -- | @since 1.0.0
@@ -110,6 +137,12 @@ instance MonadGenSym Expand where
 -- | @since 1.0.0
 instance MonadScope Expand where
   newScope = liftIO newScope
+
+-- | @since 1.0.0
+instance PrimMonad Expand where
+  type PrimState Expand = RealWorld
+
+  primitive = liftIO . primitive
 
 -- Expand - Basic Operations ----------------------------------------------------
 
@@ -121,12 +154,19 @@ runExpand ::
   ExpandConfig ->
   ExpandState ->
   Expand a ->
-  IO (Either ExpandError (a, ExpandState))
+  IO (Either ExpandError (a, ExpandState), [ExpansionLog])
 runExpand c s0 expand =
   unExpand expand
     & flip runReaderT c
     & flip runStateT s0
     & runExceptT
+    & runWriterT
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+logExpand :: ExpansionLog -> Expand ()
+logExpand x = tell [x]
 
 -- | TODO: docs
 --
@@ -135,23 +175,24 @@ resolveId :: Identifier -> Expand Symbol
 resolveId id = do
   phase <- view expandCurrentPhase
   store <- use expandBindingStore
+  logExpand (LogResolveId id)
   case resolve phase id store of
     Left  exn -> throwError (resolveToExpandError exn)
     Right s   -> pure s
   where
     resolveToExpandError :: ResolveError -> ExpandError
-    resolveToExpandError (ResolveErrorAmbiguous exn)  = ExpandErrorAmbiguous exn
-    resolveToExpandError (ResolveErrorNotInScope exn) = ExpandErrorNotInScope exn
+    resolveToExpandError (ResolveErrorAmbiguous exn)  = ExpandAmbiguous exn
+    resolveToExpandError (ResolveErrorNotInScope exn) = ExpandNotInScope exn
 
 -- | TODO: docs
 --
 -- @since 1.0.0
 lookupEnvironment :: Identifier -> Expand Transformer
 lookupEnvironment id = do
-  binding <- resolveId id
-  env     <- view expandEnvironment
-  case Environment.lookup binding env of
-    Nothing -> throwError (ErrorNotBound id binding)
+  b   <- resolveId id
+  env <- use expandEnvironment
+  case Environment.lookup b env of
+    Nothing -> throwError (ExpandNotBound (ErrorNotBound id b))
     Just x  -> pure x
 
 -- | TODO: docs
@@ -184,90 +225,32 @@ withDefinitionContext = local (set expandContext ContextDefinition)
 withExpressionContext :: Expand a -> Expand a
 withExpressionContext = local (set expandContext ContextExpression)
 
--- ExpandConfig -----------------------------------------------------------------
-
--- | 'ExpandConfig' is the read-only state of the 'Expand' monad.
---
--- @since 1.0.0
-data ExpandConfig = ExpandConfig
-  { expand_environment   :: Environment
-    -- ^ The expanders's compile-time environment. This maps bindings to their
-    -- compile-time meanings. The 'Symbol' key is a generated symbol obtained
-    -- from the expanders's binding store.
-  , expand_current_phase :: {-# UNPACK #-} !Phase
-    -- ^ The current expansion phase.
-  , expand_context       :: ExpansionContext
-    -- ^ The current expansion context.
-  }
-  deriving (Generic, Show)
-
--- | 'ExpandConfig' defaults to 'coreExpandConfig'.
---
--- @since 1.0.0
-instance Default ExpandConfig where
-  def = coreExpandConfig
-
--- ExpandConfig - Basic Operations ---------------------------------------------
-
--- | The default 'ExpandConfig' with bindings for the core syntactic forms.
---
--- @since 1.0.0
-coreExpandConfig :: ExpandConfig
-coreExpandConfig =
-  ExpandConfig
-    { expand_environment   = coreEnvironment
-    , expand_current_phase = def
-    , expand_context       = def
-    }
-
--- ExpandConfig - Lenses -------------------------------------------------------
-
--- | Lens focusing on the 'expand_environment' field of 'ExpandConfig'.
---
--- @since 1.0.0
-expandEnvironment :: Lens' ExpandConfig Environment
-expandEnvironment = lens expand_environment \s x -> s { expand_environment = x }
-
--- | Lens focusing on the 'expand_current_phase' field of 'ExpandConfig'.
---
--- @since 1.0.0
-expandCurrentPhase :: Lens' ExpandConfig Phase
-expandCurrentPhase = lens expand_current_phase \s x -> s { expand_current_phase = x }
-
--- | Lens focusing on the 'expand_context' field of 'ExpandConfig'.
---
--- @since 1.0.0
-expandContext :: Lens' ExpandConfig ExpansionContext
-expandContext = lens expand_context \s x -> s { expand_context = x }
-
 -- ExpandError -----------------------------------------------------------------
 
 -- | TODO: docs
 --
 -- @since 1.0.0
 data ExpandError
-  = ExpandErrorAmbiguous {-# UNPACK #-} !ErrorAmbiguous
+  = ExpandAmbiguous {-# UNPACK #-} !ErrorAmbiguous
     -- ^ TODO: docs
-  | ExpandErrorNotInScope {-# UNPACK #-} !ErrorNotInScope
+  | ExpandNotInScope {-# UNPACK #-} !ErrorNotInScope
     -- ^ TODO: docs
-  | ErrorNotBound {-# UNPACK #-} !Identifier {-# UNPACK #-} !Symbol
+  | ExpandNotBound {-# UNPACK #-} !ErrorNotBound
     -- ^ TODO: docs
   | ErrorBadContext Syntax [ExpansionContext] ExpansionContext
     -- ^ TODO: docs
-  | ErrorBadSyntax {-# UNPACK #-} !Syntax
+  | ErrorBadSyntax CoreForm {-# UNPACK #-} !Syntax
+    -- ^ TODO: docs
+  | ExpandReaderError (ParseErrorBundle Text ReaderError)
     -- ^ TODO: docs
   deriving (Show)
 
 -- | @since 1.0.0
 instance Display ExpandError where
-  display (ExpandErrorAmbiguous  x) = display x
-  display (ExpandErrorNotInScope x) = display x
+  display (ExpandAmbiguous x)  = display x
+  display (ExpandNotInScope x) = display x
+  display (ExpandNotBound x)   = display x
   display exn = case exn of
-    ErrorNotBound id s ->
-      docExpandError (id ^. idtInfo) "not bound"
-        [ "the identifier" <+> display id
-        , "lacks a binding to the generated symbol" <+> display s
-        ]
     ErrorBadContext stx ctxs ctx ->
       docExpandError (stx ^. syntaxInfo) "invalid expansion context"
         [ Doc.vsep
@@ -285,13 +268,14 @@ instance Display ExpandError where
             , "context"
             ]
         ]
-    ErrorBadSyntax stx ->
-      docExpandError (stx ^. syntaxInfo) "bad syntax"
+    ErrorBadSyntax core stx ->
+      docExpandError (stx ^. syntaxInfo) ("bad" <+> display core <+> "syntax")
         [ Doc.vsep
             [ "while expanding the syntax object:"
             , Doc.line <> display stx
             ]
         ]
+    ExpandReaderError x -> Doc.string (errorBundlePretty x)
     where
       docExpandError :: SyntaxInfo -> Doc -> [Doc] -> Doc
       docExpandError info msg notes =
@@ -304,120 +288,58 @@ instance Display ExpandError where
 
 -- | @since 1.0.0
 instance Error ExpandError where
-  errorCode (ExpandErrorAmbiguous x)  = errorCode x
-  errorCode (ExpandErrorNotInScope x) = errorCode x
-  errorCode ErrorNotBound   {} = $(makeErrorCode "EXPAND-10003" 'ErrorNotBound)
-  errorCode ErrorBadContext {} = $(makeErrorCode "EXPAND-10004" 'ErrorBadContext)
-  errorCode ErrorBadSyntax  {} = $(makeErrorCode "EXPAND-10005" 'ErrorBadSyntax)
+  errorCode (ExpandAmbiguous x)  = errorCode x
+  errorCode (ExpandNotInScope x) = errorCode x
+  errorCode (ExpandNotBound x)   = errorCode x
+  errorCode ErrorBadContext {}   = $(makeErrorCode "OPAL-10004" 'ErrorBadContext)
+  errorCode ErrorBadSyntax {}    = $(makeErrorCode "OPAL-10005" 'ErrorBadSyntax)
+  errorCode ExpandReaderError {} = $(makeErrorCode "OPAL-10006" 'ExpandReaderError)
 
--- ExpandState -----------------------------------------------------------------
+-- ExpansionLog ----------------------------------------------------------------
 
--- | 'ExpandState' is the read-only state of the 'Expand' monad.
+-- | TODO: docs
 --
 -- @since 1.0.0
-data ExpandState = ExpandState
-  { expand_binding_store :: BindingStore
-    -- ^ A binding store that is threaded through the expander to substitute
-    -- identifiers with the generated symbols they are bound to.
-  , expand_namespace     :: {-# UNPACK #-} !Namespace
+data ExpansionLog
+  = LogEnterEval SExp
     -- ^ TODO: docs
-  , expand_intro_scopes  :: ScopeSet
-  -- ^ The set of scopes to be pruned at syntax forms.
-  , expand_usage_scopes  :: ScopeSet
-  -- ^ A subset of the current expansion context's use-stire scopes.
-  }
-  deriving (Generic, Show)
-
--- | 'ExpandState' defaults to 'coreExpandState'.
---
--- @since 1.0.0
-instance Default ExpandState where
-  def = coreExpandState
-
--- ExpandState - Basic Operations ----------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-coreExpandState :: ExpandState
-coreExpandState =
-  ExpandState
-    { expand_binding_store = BindingStore.coreBindingStore
-    , expand_namespace     = def
-    , expand_intro_scopes  = def
-    , expand_usage_scopes  = def
-    }
-
--- ExpandState - Lenses --------------------------------------------------------
-
--- | Lens focusing on the 'expand_binding_store' field of 'ExpandState'.
---
--- @since 1.0.0
-expandBindingStore :: Lens' ExpandState BindingStore
-expandBindingStore = lens expand_binding_store \s x -> s { expand_binding_store = x }
-
--- | Lens focusing on the 'expand_namespace' field of 'ExpandState'.
---
--- @since 1.0.0
-expandNamespace :: Lens' ExpandState Namespace
-expandNamespace = lens expand_namespace \s x -> s { expand_namespace = x }
-
--- | Lens focusing on the 'expand_intro_scopes' field of 'ExpandState'.
---
--- @since 1.0.0
-expandIntroScopes :: Lens' ExpandState ScopeSet
-expandIntroScopes = lens expand_intro_scopes \s x -> s { expand_intro_scopes = x }
-
--- | Lens focusing on the 'expand_usage_scopes' field of 'ExpandState'.
---
--- @since 1.0.0
-expandUsageScopes :: Lens' ExpandState ScopeSet
-expandUsageScopes = lens expand_usage_scopes \s x -> s { expand_usage_scopes = x }
-
--- ExpansionContext ------------------------------------------------------------
-
--- | 'ExpansionContext' is an enumeration of the various expansion contexts.
---
--- @since 1.0.0
-data ExpansionContext
-  = ContextDefinition
-    -- ^ The definition-level expansion context.
-  | ContextExpression
-    -- ^ The expression-level expansion context.
-  | ContextModule
-    -- ^ The module-level expansion context.
-  | ContextModuleBegin
-    -- ^ The module body expansion context.
-  | ContextTopLevel
-    -- ^ The top-level expansion context.
-  deriving (Bounded, Enum, Eq, Ord)
+  | LogEnterMacro Syntax
+    -- ^ TODO: docs
+  | LogEnterMacroExpand Syntax
+    -- ^ TODO: docs
+  | LogEnterParse Syntax
+    -- ^ TODO: docs
+  | LogExitEval Datum
+    -- ^ TODO: docs
+  | LogExitMacro Syntax
+    -- ^ TODO: docs
+  | LogExitMacroExpand Syntax
+    -- ^ TODO: docs
+  | LogExitParse SExp
+    -- ^ TODO: docs
+  | LogParse Syntax
+    -- ^ TODO: docs
+  | LogResolveId Identifier
+    -- ^ TODO: docs
+  | LogVariable Identifier
+    -- ^ TODO: docs
+  | LogVisitSyntax Syntax
+    -- ^ TODO: docs
+  deriving (Show)
 
 -- | @since 1.0.0
-instance Default ExpansionContext where
-  def = ContextTopLevel
+instance Display ExpansionLog where
+  display (LogEnterEval stx)        = "enter-eval" <+> display stx
+  display (LogEnterMacro stx)       = "enter-macro" <+> display stx
+  display (LogEnterMacroExpand stx) = "enter-macro-expand" <+> display stx
+  display (LogEnterParse stx)       = "enter-parse" <+> display stx
+  display (LogExitEval stx)         = "exit-eval" <+> display stx
+  display (LogExitMacro stx)        = "exit-macro" <+> display stx
+  display (LogExitMacroExpand stx)  = "exit-macro-expand" <+> display stx
+  display (LogExitParse stx)        = "exit-parse" <+> display stx
+  display (LogParse stx)            = "parse" <+> display stx
+  display (LogResolveId id)         = "resolve-id" <+> display id
+  display (LogVariable id)          = "variable" <+> display id
+  display (LogVisitSyntax stx)      = "visit-syntax" <+> display stx
 
--- | @since 1.0.0
-instance Display ExpansionContext where
-  display = Doc.string . expansionContextString
-
--- | @since 1.0.0
-instance Show ExpansionContext where
-  show = Doc.pretty 80 . display
-
--- ExpansionContext ------------------------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-expansionContextSymbol :: ExpansionContext -> Symbol
-expansionContextSymbol = stringToSymbol . expansionContextString
-
--- | TODO: docs
---
--- @since 1.0.0
-expansionContextString :: ExpansionContext -> String
-expansionContextString ContextExpression  = "expression"
-expansionContextString ContextTopLevel    = "top-level"
-expansionContextString ContextModule      = "module"
-expansionContextString ContextModuleBegin = "module-begin"
-expansionContextString ContextDefinition  = "definition"
+  displayList = Doc.vsep . map display

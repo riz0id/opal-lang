@@ -1,4 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TemplateHaskell            #-}
+
 {-# OPTIONS_HADDOCK show-extensions #-}
 
 -- |
@@ -36,8 +38,6 @@ module Opal.Parser.Monad
   )
 where
 
-import Control.Lens (Lens', lens)
-
 import Control.Monad.Except (ExceptT, MonadError (..), runExceptT)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (MonadReader (..), ReaderT (..))
@@ -48,6 +48,7 @@ import Data.Function ((&))
 import GHC.Generics (Generic)
 
 import Opal.Binding.BindingStore (BindingStore)
+import Opal.Common.Lens (defineLenses)
 import Opal.Common.Phase (Phase)
 import Opal.Error (ErrorAmbiguous (..))
 import Opal.Syntax (Syntax, SyntaxInfo)
@@ -105,38 +106,6 @@ throwQuoteParseError = throwError . ParseErrorCore . ParseErrorQuote
 throwQuoteSyntaxParseError :: Syntax -> Parse a
 throwQuoteSyntaxParseError = throwError . ParseErrorCore . ParseErrorSyntax
 
--- ParseConfig -----------------------------------------------------------------
-
--- | 'ParseConfig' is the read-only state of the 'Parse' monad.
---
--- @since 1.0.0
-data ParseConfig = ParseConfig
-  { parse_binding_store :: BindingStore
-    -- ^ A binding store that is threaded through parsing to substitute
-    -- identifiers with the generated symbols they are bound to.
-  , parse_current_phase :: {-# UNPACK #-} !Phase
-    -- ^ The current phase that 'Parse' is parsing at.
-  }
-  deriving (Generic, Show)
-
--- | @since 1.0.0
-instance Default ParseConfig where
-  def = ParseConfig def def
-
--- ParseConfig - Lenses --------------------------------------------------------
-
--- | Lens focusing on the 'parse_binding_store' field of 'ParseConfig'.
---
--- @since 1.0.0
-parseBindingStore :: Lens' ParseConfig BindingStore
-parseBindingStore = lens parse_binding_store \s x -> s { parse_binding_store = x }
-
--- | Lens focusing on the 'parse_current_phase' field of 'ParseConfig'.
---
--- @since 1.0.0
-parseCurrentPhase :: Lens' ParseConfig Phase
-parseCurrentPhase = lens parse_current_phase \s x -> s { parse_current_phase = x }
-
 -- ParseError ------------------------------------------------------------------
 
 -- | TODO: docs
@@ -164,3 +133,23 @@ data CoreParseError
   | ParseErrorSyntax {-# UNPACK #-} !Syntax
     -- ^ TODO: docs
   deriving (Show)
+
+-- ParseConfig -----------------------------------------------------------------
+
+-- | 'ParseConfig' is the read-only state of the 'Parse' monad.
+--
+-- @since 1.0.0
+data ParseConfig = ParseConfig
+  { parse_binding_store :: BindingStore
+    -- ^ A binding store that is threaded through parsing to substitute
+    -- identifiers with the generated symbols they are bound to.
+  , parse_current_phase :: {-# UNPACK #-} !Phase
+    -- ^ The current phase that 'Parse' is parsing at.
+  }
+  deriving (Generic, Show)
+
+$(defineLenses ''ParseConfig)
+
+-- | @since 1.0.0
+instance Default ParseConfig where
+  def = ParseConfig def def

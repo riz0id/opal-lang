@@ -1,4 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings          #-}
 {-# OPTIONS_HADDOCK show-extensions #-}
 
 -- |
@@ -16,43 +17,49 @@
 -- @since 1.0.0
 module Opal.Evaluator.Monad
   ( -- * Eval
-    Eval (..),
+    Eval (..)
     -- ** Basic Operations
-    runEval,
+  , runEval
     -- * EvalConfig
-    EvalConfig (..),
+  , EvalConfig (..)
     -- ** Lenses
-    evalEnvironment,
-    evalCurrentPhase,
-    evalCurrentScope,
+  , evalEnvironment
+  , evalCurrentPhase
+  , evalCurrentScope
+    -- * EvalError
+  , EvalError (..)
     -- * EvalState
-    EvalState (..),
+  , EvalState (..)
     -- ** Lenses
-    evalBindingStore,
-    evalIntroScopes,
-    evalUsageScopes,
+  , evalBindingStore
+  , evalIntroScopes
+  , evalUsageScopes
   )
 where
 
-import Control.Lens (Lens', lens)
-
+import Control.Monad.Except (ExceptT, MonadError (..), runExceptT)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (MonadReader (..), ReaderT (..))
 import Control.Monad.State (MonadState (..), StateT (..))
 
-import Data.Default (Default (..))
-import Data.HashMap.Strict (HashMap)
-import Data.HashMap.Strict qualified as HashMap
 import Data.Function ((&))
 
-import GHC.Generics (Generic)
-
-import Opal.Binding.BindingStore (BindingStore)
-import Opal.Common.Phase (Phase)
-import Opal.Common.Scope (MonadScope (..), Scope)
-import Opal.Common.ScopeSet (ScopeSet)
-import Opal.Common.Symbol (MonadGenSym (..), Symbol)
-import Opal.Syntax.Transformer (Transformer)
+import Opal.Common.Scope (MonadScope (..))
+import Opal.Common.Symbol (MonadGenSym (..))
+import Opal.Evaluator.Config
+  ( EvalConfig(..)
+  , evalEnvironment
+  , evalCurrentPhase
+  , evalCurrentScope
+  )
+import Opal.Evaluator.State
+  ( EvalState(..)
+  , evalBindingStore
+  , evalIntroScopes
+  , evalUsageScopes
+  )
+import Opal.Error (ErrorNotBound, Error (..))
+import Opal.Writer (Display (..))
 
 -- Eval ------------------------------------------------------------------------
 
@@ -61,12 +68,13 @@ import Opal.Syntax.Transformer (Transformer)
 --
 -- @since 1.0.0
 newtype Eval a = Eval
-  { unEval :: ReaderT EvalConfig (StateT EvalState IO) a }
+  { unEval :: ReaderT EvalConfig (StateT EvalState (ExceptT EvalError IO)) a }
   deriving newtype
     ( Functor
     , Applicative
     , Monad
     , MonadIO
+    , MonadError EvalError
     , MonadReader EvalConfig
     , MonadState EvalState
     )
@@ -82,89 +90,26 @@ instance MonadScope Eval where
 -- | Run an 'Eval' computation with the given 'EvalConfig' and 'EvalState'.
 --
 -- @since 1.0.0
-runEval :: EvalConfig -> EvalState -> Eval a -> IO (a, EvalState)
+runEval :: EvalConfig -> EvalState -> Eval a -> IO (Either EvalError (a, EvalState))
 runEval c s eval =
   unEval eval
     & flip runReaderT c
     & flip runStateT s
+    & runExceptT
 
--- EvalConfig ------------------------------------------------------------------
+-- EvalError -------------------------------------------------------------------
 
--- | 'EvalConfig' is the read-only state of the 'Eval' monad.
+-- | TODO: docs
 --
 -- @since 1.0.0
-data EvalConfig = EvalConfig
-  { eval_environment   :: HashMap Symbol Transformer
-    -- ^ The evaluator's compile-time environment. This maps bindings to their
-    -- compile-time meanings. The 'Symbol' key is a generated symbol obtained
-    -- from the evaluator's binding store.
-  , eval_current_phase :: {-# UNPACK #-} !Phase
-    -- ^ The current evaluator phase for syntax forms.
-  , eval_current_scope :: Maybe Scope
-    -- ^ An optional introduction scope. When given, this scope will be used for
-    -- local expansion.
-  }
-  deriving (Generic, Show)
+data EvalError
+  = EvalNotBound {-# UNPACK #-} !ErrorNotBound
+    -- ^ TODO: docs
 
 -- | @since 1.0.0
-instance Default EvalConfig where
-  def = EvalConfig HashMap.empty def def
-
--- EvalConfig - Lenses ---------------------------------------------------------
-
--- | Lens focusing on the 'eval_environment' field of 'EvalConfig'.
---
--- @since 1.0.0
-evalEnvironment :: Lens' EvalConfig (HashMap Symbol Transformer)
-evalEnvironment = lens eval_environment \s x -> s { eval_environment = x }
-
--- | Lens focusing on the 'eval_current_phase' field of 'EvalConfig'.
---
--- @since 1.0.0
-evalCurrentPhase :: Lens' EvalConfig Phase
-evalCurrentPhase = lens eval_current_phase \s x -> s { eval_current_phase = x }
-
--- | Lens focusing on the 'eval_usage_scopes' field of 'EvalConfig'.
---
--- @since 1.0.0
-evalCurrentScope :: Lens' EvalConfig (Maybe Scope)
-evalCurrentScope = lens eval_current_scope \s x -> s { eval_current_scope = x }
-
--- EvalState -------------------------------------------------------------------
-
--- | 'EvalState' is the mutable state of the 'Eval' monad.
---
--- @since 1.0.0
-data EvalState = EvalState
-  { eval_binding_store :: BindingStore
-  -- ^ A binding store that is threaded through evaluation and expansion.
-  , eval_intro_scopes  :: ScopeSet
-  -- ^ The set of scopes to be pruned at syntax forms.
-  , eval_usage_scopes  :: ScopeSet
-  -- ^ A subset of the current expansion context's use-stire scopes.
-  }
-  deriving (Eq, Generic, Ord, Show)
+instance Error EvalError where
+  errorCode (EvalNotBound exn) = errorCode exn
 
 -- | @since 1.0.0
-instance Default EvalState where
-  def = EvalState def def def
-
--- EvalState - Lenses ----------------------------------------------------------
-
--- | Lens focusing on the 'eval_binding_store' field of 'EvalState'.
---
--- @since 1.0.0
-evalBindingStore :: Lens' EvalState BindingStore
-evalBindingStore = lens eval_binding_store \s x -> s { eval_binding_store = x }
-
--- | Lens focusing on the 'eval_intro_scopes' field of 'EvalState'.
---
--- @since 1.0.0
-evalIntroScopes :: Lens' EvalState ScopeSet
-evalIntroScopes = lens eval_intro_scopes \s x -> s { eval_intro_scopes = x }
-
--- | Lens focusing on the 'eval_usage_scopes' field of 'EvalState'.
---
--- @since 1.0.0
-evalUsageScopes :: Lens' EvalState ScopeSet
-evalUsageScopes = lens eval_usage_scopes \s x -> s { eval_usage_scopes = x }
+instance Display EvalError where
+  display (EvalNotBound exn) = display exn

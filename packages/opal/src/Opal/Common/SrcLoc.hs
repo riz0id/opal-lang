@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskellQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_HADDOCK show-extensions #-}
 
 -- |
@@ -31,7 +31,7 @@ where
 
 import Control.DeepSeq (NFData)
 
-import Control.Lens (Lens', lens, (.~), (+~), (^.))
+import Control.Lens ((.~), (+~), (^.))
 
 import Data.Default (Default (..))
 import Data.Function ((&))
@@ -41,9 +41,10 @@ import GHC.Generics (Generic)
 import Language.Haskell.TH (Pat(..))
 import Language.Haskell.TH.Syntax (Lift)
 
+import Opal.Common.Lens (defineLenses)
 import Opal.Common.TH (Pattern (..))
 import Opal.Writer (Display (..))
-import qualified Opal.Writer.Doc as Doc
+import Opal.Writer.Doc qualified as Doc
 
 --------------------------------------------------------------------------------
 
@@ -52,15 +53,17 @@ import qualified Opal.Writer.Doc as Doc
 --
 -- @since 1.0.0
 data SrcLoc = SrcLoc
-  { srcloc_posn :: {-# UNPACK #-} !Int
+  { src_loc_posn :: {-# UNPACK #-} !Int
     -- ^ The position of the 'SrcLoc' in source file. This is the absolute
     -- offset from the beginning of the source file in characters.
-  , srcloc_line :: {-# UNPACK #-} !Int
+  , src_loc_line :: {-# UNPACK #-} !Int
     -- ^ The line number of the 'SrcLoc' in source file.
-  , srcloc_coln :: {-# UNPACK #-} !Int
+  , src_loc_coln :: {-# UNPACK #-} !Int
     -- ^ The column number of the 'SrcLoc' in source file.
   }
   deriving (Eq, Generic, Lift, Ord, Show)
+
+$(defineLenses ''SrcLoc)
 
 -- | 'SrcLoc' defaults to 'defaultSrcLoc'.
 --
@@ -136,26 +139,3 @@ nextColn :: SrcLoc -> SrcLoc
 nextColn loc =
   loc & srcLocPosn +~ 1
       & srcLocColn +~ 1
-
--- SrcLoc - Lenses -------------------------------------------------------------
-
--- | Lens focusing on the 'srcloc_posn' field of 'SrcLoc'.
---
--- @since 1.0.0
-srcLocPosn :: Lens' SrcLoc Int
-srcLocPosn = lens srcloc_posn \s x -> s { srcloc_posn = x }
-{-# INLINE srcLocPosn #-}
-
--- | Lens focusing on the 'srcloc_line' field of 'SrcLoc'.
---
--- @since 1.0.0
-srcLocLine :: Lens' SrcLoc Int
-srcLocLine = lens srcloc_line \s x -> s { srcloc_line = x }
-{-# INLINE srcLocLine #-}
-
--- | Lens focusing on the 'srcloc_coln' field of 'SrcLoc'.
---
--- @since 1.0.0
-srcLocColn :: Lens' SrcLoc Int
-srcLocColn = lens srcloc_coln \s x -> s { srcloc_coln = x }
-{-# INLINE srcLocColn #-}
