@@ -1,9 +1,4 @@
-{-# LANGUAGE DefaultSignatures     #-}
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE PatternSynonyms       #-}
-{-# LANGUAGE TypeFamilies          #-}
-{-# LANGUAGE UnboxedTuples         #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 {-# OPTIONS_HADDOCK show-extensions #-}
 
@@ -29,9 +24,9 @@ module Opal.Writer.Monad
   )
 where
 
-import Control.Lens (Lens', lens)
-
 import Data.Default (Default (..))
+
+import Opal.Common.Lens (defineLenses)
 
 -- Writer ----------------------------------------------------------------------
 
@@ -57,15 +52,9 @@ data WriterConfig = WriterConfig
   }
   deriving (Show)
 
+$(defineLenses ''WriterConfig)
+
 -- | @since 1.0.0
 instance Default WriterConfig where
   def = WriterConfig (Just 80)
 
--- WriterConfig - Lenses -------------------------------------------------------
-
--- | Lens focusing on the 'writer_max_column' field of 'WriterConfig'.
---
--- @since 1.0.0
-writerMaxColumn :: Lens' WriterConfig (Maybe Int)
-writerMaxColumn = lens writer_max_column \s x -> s { writer_max_column = x }
-{-# INLINE writerMaxColumn #-}
