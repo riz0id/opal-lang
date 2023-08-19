@@ -1,7 +1,7 @@
 {-# OPTIONS_HADDOCK show-extensions #-}
 
 -- |
--- Module      :  Opal.Syntax.CoreForm
+-- Module      :  Opal.Core
 -- Copyright   :  (c) Jacob Leach, 2023
 -- License     :  ISC, see LICENSE
 --
@@ -12,7 +12,7 @@
 -- Core syntactic forms.
 --
 -- @since 1.0.0
-module Opal.Syntax.CoreForm
+module Opal.Core
   ( -- * CoreForm
     CoreForm (..)
 

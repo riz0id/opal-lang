@@ -20,9 +20,9 @@ where
 
 import Data.IORef (IORef, readIORef)
 
+import Opal.Core (CoreForm)
 import Opal.Writer (Display(..), Doc, (<+>))
 import Opal.Writer qualified as Doc
-import Opal.Syntax.CoreForm (CoreForm)
 import Opal.Syntax (Datum)
 
 import Prelude hiding (id)

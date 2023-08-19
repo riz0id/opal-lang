@@ -67,6 +67,7 @@ import Opal.Syntax
   )
 import Opal.Syntax.Transformer
 import Opal.Error (ErrorNotBound(ErrorNotBound))
+import System.Exit (exitFailure)
 
 -- Eval - Evaluate -------------------------------------------------------------
 
@@ -95,8 +96,11 @@ evalSApp lam@(Lambda args body) sexps = do
   let arity = lambdaArity lam
   let count = length sexps
 
-  unless (arity == count) do
-    error ("expected " ++ show arity ++ " arguments, got " ++ show count)
+  unless (arity == count) $ liftIO do
+    putStrLn ("application to: " ++ show lam)
+    putStrLn ("expected " ++ show arity ++ " arguments, got " ++ show count ++ ": " ++ show sexps)
+    putStrLn (show (SApp (SVal (DatumLam lam) :| sexps)))
+    exitFailure
 
   env  <- view evalEnvironment
   env' <- foldr insertEnvironment (pure env) (zip args sexps)

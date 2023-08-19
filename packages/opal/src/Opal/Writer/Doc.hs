@@ -27,6 +27,7 @@ module Opal.Writer.Doc
   , float
   , int
   , word
+  , parens
   , nest
   , indent
   , concat
@@ -164,6 +165,12 @@ int = string . show -- FIXME: optimize
 -- @since 1.0.0
 word :: Word -> Doc
 word = string . show -- FIXME: optimize
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+parens :: Doc -> Doc
+parens x = char '(' <> x <> char ')'
 
 -- | The @('nest' n x)@ combinator creates a new document adjusts the current
 -- indentation level after each line break in the given document @x@ by @n@

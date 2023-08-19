@@ -15,17 +15,20 @@ module Test.Opal.Reader
   )
 where
 
+import Control.Lens ((^.))
+
 import Data.Default (Default (..))
 
 import GHC.Stack (HasCallStack, withFrozenCallStack)
 
-import Hedgehog (PropertyT, forAll, (===))
+import Hedgehog (PropertyT, annotate, forAll, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Internal.Property (failWith)
 import Hedgehog.Range qualified as Range
 
+import Opal.Common.SourceInfo (SourceInfo(..))
 import Opal.Reader (runStringReader)
-import Opal.Syntax (Syntax (..), SyntaxInfo (..))
+import Opal.Syntax (Syntax (..), SyntaxInfo (..), syntaxInfo)
 
 import Test.Core (TestTree, testCase, testGroup, testUnit)
 
@@ -34,15 +37,16 @@ import Text.Megaparsec (errorBundlePretty)
 --------------------------------------------------------------------------------
 
 testSyntaxInfo :: SyntaxInfo
-testSyntaxInfo = def
-  { stx_info_source = Just "Test.Reader"
-  , stx_info_srcloc = Just def
-  }
+testSyntaxInfo = def { stx_info_source = Just (SourceInfo "Test.Opal.Reader" def) }
 
 runTestReader :: HasCallStack => String -> Syntax -> PropertyT IO ()
-runTestReader input expected = case runStringReader "Test.Reader" input of
-  Left  exn -> withFrozenCallStack (failWith Nothing (errorBundlePretty exn))
-  Right stx -> withFrozenCallStack (stx === expected)
+runTestReader input expected = do
+  case runStringReader "Test.Opal.Reader" input of
+    Left  exn -> withFrozenCallStack (failWith Nothing (errorBundlePretty exn))
+    Right stx -> do
+      annotate ("Reader result: " ++ show stx)
+      annotate ("Lexical info: " ++ show (stx ^. syntaxInfo))
+      withFrozenCallStack (stx === expected)
 
 --------------------------------------------------------------------------------
 

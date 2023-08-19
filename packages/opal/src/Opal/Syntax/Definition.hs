@@ -35,14 +35,14 @@ module Opal.Syntax.Definition
   , defineToSyntax
     -- ** Optics
   , defineId
-  , defineDefn
+  , defineExpr
     -- * DefineSyntax
   , DefineSyntax (..)
     -- ** Basic Operations
   , defineSyntaxToSyntax
     -- ** Optics
   , defineSyntaxId
-  , defineSyntaxStx
+  , defineSyntaxExpr
   )
 where
 
@@ -196,7 +196,7 @@ beginFinal = lens begin_final \s x -> s { begin_final = x }
 data Define = Define
   { define_id   :: {-# UNPACK #-} !Identifier
     -- ^ TODO: docs
-  , define_defn :: Syntax
+  , define_expr :: Syntax
     -- ^ TODO: docs
   }
   deriving (Eq, Ord)
@@ -229,11 +229,11 @@ defineToSyntax (Define id stx) = [syntax| (define ?id:id ?stx) |]
 defineId :: Lens' Define Identifier
 defineId = lens define_id \s x -> s { define_id = x }
 
--- | Lens focusing on the 'define_defn' field of a 'Define'.
+-- | Lens focusing on the 'define_expr' field of a 'Define'.
 --
 -- @since 1.0.0
-defineDefn :: Lens' Define Syntax
-defineDefn = lens define_defn \s x -> s { define_defn = x }
+defineExpr :: Lens' Define Syntax
+defineExpr = lens define_expr \s x -> s { define_expr = x }
 
 -- DefineSyntax ----------------------------------------------------------------
 
@@ -241,9 +241,9 @@ defineDefn = lens define_defn \s x -> s { define_defn = x }
 --
 -- @since 1.0.0
 data DefineSyntax = DefineSyntax
-  { define_syntax_id  :: {-# UNPACK #-} !Identifier
+  { define_syntax_id   :: {-# UNPACK #-} !Identifier
     -- ^ TODO: docs
-  , define_syntax_stx :: Syntax
+  , define_syntax_expr :: Syntax
     -- ^ TODO: docs
   }
   deriving (Eq, Ord)
@@ -277,8 +277,8 @@ defineSyntaxToSyntax (DefineSyntax id stx) = [syntax| (define-syntax ?id:id ?stx
 defineSyntaxId :: Lens' DefineSyntax Identifier
 defineSyntaxId = lens define_syntax_id \s x -> s { define_syntax_id = x }
 
--- | Lens focusing on the 'define_syntax_stx' field of a 'DefineSyntax'.
+-- | Lens focusing on the 'define_syntax_expr' field of a 'DefineSyntax'.
 --
 -- @since 1.0.0
-defineSyntaxStx :: Lens' DefineSyntax Syntax
-defineSyntaxStx = lens define_syntax_stx \s x -> s { define_syntax_stx = x }
+defineSyntaxExpr :: Lens' DefineSyntax Syntax
+defineSyntaxExpr = lens define_syntax_expr \s x -> s { define_syntax_expr = x }

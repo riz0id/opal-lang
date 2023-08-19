@@ -108,6 +108,8 @@ readQuasiVar = do
             pure (QVar (QuasiVar var QuasiClassBool ellipsis))
           | k `eqSymbol` ":lam" ->
             pure (QVar (QuasiVar var QuasiClassLam ellipsis))
+          | k `eqSymbol` ":symbol" ->
+            pure (QVar (QuasiVar var QuasiClassSymbol ellipsis))
           | otherwise          ->
             customFailure (ReaderError ("invalid quasi-variable class: " ++ symbolToString k))
     else pure (QVal (QuasiValS s))

@@ -94,6 +94,7 @@ library
     Opal.Common.SymbolStore
     Opal.Common.TH
     Opal.Common.Unicode
+    Opal.Core
     Opal.Error
     Opal.Error.ErrorCode
     Opal.Error.ErrorCode.TH
@@ -110,6 +111,7 @@ library
     Opal.Memory.Ptr
     Opal.Memory.Slice
     Opal.Module
+    Opal.Module.Import
     Opal.Parser
     Opal.Parser.Config
     Opal.Parser.Monad
@@ -119,7 +121,6 @@ library
     Opal.Reader.Monad
     Opal.Resolve
     Opal.Syntax
-    Opal.Syntax.CoreForm
     Opal.Syntax.Definition
     Opal.Syntax.ScopeInfo
     Opal.Syntax.Transformer

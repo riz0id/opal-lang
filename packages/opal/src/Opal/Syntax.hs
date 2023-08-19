@@ -76,6 +76,7 @@ module Opal.Syntax
   , syntaxChar
   , syntaxF32
   , syntaxI32
+  , syntaxSymbol
   , syntaxId
   , syntaxLambda
   , syntaxList
@@ -687,25 +688,32 @@ syntaxBool :: Prism' Syntax Bool
 syntaxBool = prism' (datumToSyntax def . DatumB) (preview datumBool . view syntaxDatum)
 
 -- | Compound prism focusing on the @('datumChar' . 'syntaxDatum')@ constructor
--- of 'Datum'.
+-- of a 'Syntax'.
 --
 -- @since 1.0.0
 syntaxChar :: Prism' Syntax Char
 syntaxChar = prism' (datumToSyntax def . DatumC) (preview datumChar . view syntaxDatum)
 
 -- | Compound prism focusing on the @('datumF32' . 'syntaxDatum')@ constructor
--- of 'Datum'.
+-- of a 'Syntax'.
 --
 -- @since 1.0.0
 syntaxF32 :: Prism' Syntax Float
 syntaxF32 = prism' (datumToSyntax def . DatumF32) (preview datumF32 . view syntaxDatum)
 
 -- | Compound prism focusing on the @('datumI32' . 'syntaxDatum')@ constructor
--- of 'Datum'.
+-- of a 'Syntax'.
 --
 -- @since 1.0.0
 syntaxI32 :: Prism' Syntax Int32
 syntaxI32 = prism' (datumToSyntax def . DatumI32) (preview datumI32 . view syntaxDatum)
+
+-- | Compound prism focusing on the @('datumSymbol' . 'syntaxDatum')@
+-- constructor of a 'Syntax'.
+--
+-- @since 1.0.0
+syntaxSymbol :: Prism' Syntax Symbol
+syntaxSymbol = prism' (`SyntaxS` def) (preview datumSymbol . view syntaxDatum)
 
 -- | TODO: docs
 --
@@ -783,7 +791,7 @@ defaultSyntaxInfo = SyntaxInfo def def HashMap.empty
 
 -- SyntaxInfo - Optics ---------------------------------------------------------
 
--- | Lens focusing on the 'stx_info_properties' field of 'SyntaxInfo'.
+-- | Lens focusing on the 'stx_info_source' field of 'SyntaxInfo'.
 --
 -- @since 1.0.0
 stxInfoSource :: Lens' SyntaxInfo (Maybe SourceInfo)

@@ -44,7 +44,7 @@ import GHC.Exts (IsList (..))
 import GHC.Generics (Generic)
 
 import Opal.Common.Symbol (Symbol)
-import Opal.Syntax.CoreForm (coreFormSymbol)
+import Opal.Core (coreFormSymbol)
 import Opal.Syntax.Transformer (Transformer (..))
 import Opal.Writer.Class (Display (..))
 import Opal.Writer.Doc qualified as Doc

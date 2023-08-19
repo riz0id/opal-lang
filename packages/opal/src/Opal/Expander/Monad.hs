@@ -86,7 +86,7 @@ import Opal.Error.ErrorCode.TH (makeErrorCode)
 import Opal.Reader (ReaderError)
 import Opal.Resolve (ResolveError (..), resolve)
 import Opal.Syntax
-import Opal.Syntax.CoreForm (CoreForm)
+import Opal.Core (CoreForm)
 import Opal.Syntax.Transformer (Transformer(..))
 import Opal.Writer (Display (..), Doc, (<+>))
 import Opal.Writer qualified as Doc

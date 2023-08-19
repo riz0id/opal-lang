@@ -53,7 +53,7 @@ import Opal.Binding
 import Opal.Common.Symbol (Symbol)
 import Opal.Common.ScopeSet (ScopeSet)
 import Opal.Common.ScopeSet qualified as ScopeSet
-import Opal.Syntax.CoreForm (coreFormSymbol)
+import Opal.Core (coreFormSymbol)
 import Opal.Writer.Class (Display (..))
 import Opal.Writer.Doc qualified as Doc
 

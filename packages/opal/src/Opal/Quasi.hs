@@ -479,6 +479,8 @@ data QuasiClass
     -- ^ TODO: docs
   | QuasiClassStx
     -- ^ TODO: docs
+  | QuasiClassSymbol
+    -- ^ TODO: docs
   deriving (Enum, Eq, Ord)
 
 -- | @since 1.0.0
@@ -491,13 +493,14 @@ instance Display QuasiClass where
 
 -- | @since 1.0.0
 instance Show QuasiClass where
-  show QuasiClassBool = "bool"
-  show QuasiClassChar = "char"
-  show QuasiClassF32  = "f32"
-  show QuasiClassI32  = "i32"
-  show QuasiClassId   = "id"
-  show QuasiClassLam  = "lam"
-  show QuasiClassStx  = "stx"
+  show QuasiClassBool   = "bool"
+  show QuasiClassChar   = "char"
+  show QuasiClassF32    = "f32"
+  show QuasiClassI32    = "i32"
+  show QuasiClassId     = "id"
+  show QuasiClassLam    = "lam"
+  show QuasiClassStx    = "stx"
+  show QuasiClassSymbol = "symbol"
 
 -- QuasiClass - Template Haskell -----------------------------------------------
 
@@ -525,25 +528,27 @@ instance Show QuasiClass where
 --
 -- @since 1.0.0
 toSyntaxConverterE :: QuasiClass -> Q Exp
-toSyntaxConverterE QuasiClassBool = [e| \x -> SyntaxB   x def     |]
-toSyntaxConverterE QuasiClassChar = [e| \x -> SyntaxC   x def     |]
-toSyntaxConverterE QuasiClassF32  = [e| \x -> SyntaxF32 x def     |]
-toSyntaxConverterE QuasiClassI32  = [e| \x -> SyntaxI32 x def     |]
-toSyntaxConverterE QuasiClassId   = [e| \x -> identifierToSyntax x |]
-toSyntaxConverterE QuasiClassLam  = [e| \x -> SyntaxLam x def     |]
-toSyntaxConverterE QuasiClassStx  = [e| \x -> x                   |]
+toSyntaxConverterE QuasiClassBool   = [e| \x -> SyntaxB   x def      |]
+toSyntaxConverterE QuasiClassChar   = [e| \x -> SyntaxC   x def      |]
+toSyntaxConverterE QuasiClassF32    = [e| \x -> SyntaxF32 x def      |]
+toSyntaxConverterE QuasiClassI32    = [e| \x -> SyntaxI32 x def      |]
+toSyntaxConverterE QuasiClassId     = [e| \x -> identifierToSyntax x |]
+toSyntaxConverterE QuasiClassLam    = [e| \x -> SyntaxLam x def      |]
+toSyntaxConverterE QuasiClassStx    = [e| \x -> x                    |]
+toSyntaxConverterE QuasiClassSymbol = [e| \x -> SyntaxS x def        |]
 
 -- | TODO: docs
 --
 -- @since 1.0.0
 toSyntaxViewerE :: QuasiClass -> Exp
-toSyntaxViewerE QuasiClassBool = VarE 'preview `AppE` VarE 'syntaxBool
-toSyntaxViewerE QuasiClassChar = VarE 'preview `AppE` VarE 'syntaxChar
-toSyntaxViewerE QuasiClassF32  = VarE 'preview `AppE` VarE 'syntaxF32
-toSyntaxViewerE QuasiClassI32  = VarE 'preview `AppE` VarE 'syntaxI32
-toSyntaxViewerE QuasiClassId   = VarE 'preview `AppE` VarE 'syntaxId
-toSyntaxViewerE QuasiClassLam  = VarE 'preview `AppE` VarE 'syntaxLambda
-toSyntaxViewerE QuasiClassStx  = VarE 'id
+toSyntaxViewerE QuasiClassBool   = VarE 'preview `AppE` VarE 'syntaxBool
+toSyntaxViewerE QuasiClassChar   = VarE 'preview `AppE` VarE 'syntaxChar
+toSyntaxViewerE QuasiClassF32    = VarE 'preview `AppE` VarE 'syntaxF32
+toSyntaxViewerE QuasiClassI32    = VarE 'preview `AppE` VarE 'syntaxI32
+toSyntaxViewerE QuasiClassId     = VarE 'preview `AppE` VarE 'syntaxId
+toSyntaxViewerE QuasiClassLam    = VarE 'preview `AppE` VarE 'syntaxLambda
+toSyntaxViewerE QuasiClassStx    = VarE 'id
+toSyntaxViewerE QuasiClassSymbol = VarE 'preview `AppE` VarE 'syntaxSymbol
 
 -- EllipsisClass ---------------------------------------------------------------
 
