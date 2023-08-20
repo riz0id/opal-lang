@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell   #-}
 
 {-# OPTIONS_HADDOCK show-extensions #-}
 
@@ -23,9 +24,8 @@ module Opal.Syntax
   , valueSymbol
   , valueF32
   , valueI32
-  , valueLambda
     -- * Datum
-  , Datum (DatumB, DatumC, DatumS, DatumF32, DatumI32, DatumLam, ..)
+  , Datum (DatumB, DatumC, DatumS, DatumF32, DatumI32, ..)
     -- ** Optics
   , datumValue
   , datumBool
@@ -56,7 +56,7 @@ module Opal.Syntax
   , idtInfo
   , idtScopes
     -- * Syntax
-  , Syntax (SyntaxB, SyntaxC, SyntaxS, SyntaxF32, SyntaxI32, SyntaxLam, ..)
+  , Syntax (SyntaxB, SyntaxC, SyntaxS, SyntaxF32, SyntaxI32, ..)
     -- ** Basic Operations
   , datumToSyntax
   , syntaxToDatum
@@ -102,7 +102,6 @@ import Data.Int (Int32)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 
-import GHC.Exts (IsString (..))
 import GHC.Generics (Generic)
 
 import Language.Haskell.TH.Syntax (Lift)
@@ -111,93 +110,14 @@ import Opal.Common.Phase (Phase)
 import Opal.Common.Scope (Scope)
 import Opal.Common.ScopeSet (ScopeSet)
 import Opal.Common.SourceInfo (SourceInfo)
-import Opal.Common.Symbol (Symbol, stringToSymbol, symbolToString)
+import Opal.Common.Symbol (Symbol, symbolToString)
 import Opal.Writer (Display(..))
 import Opal.Writer qualified as Doc
 import Opal.Syntax.ScopeInfo (ScopeInfo)
 import Opal.Syntax.ScopeInfo qualified as ScopeInfo
+import Opal.Syntax.Value
 
 import Prelude hiding (id)
-
--- Value -----------------------------------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-data Value
-  = ValueB   !Bool
-    -- ^ A literal boolean value.
-  | ValueC   {-# UNPACK #-} !Char
-    -- ^ A literal character value.
-  | ValueS   {-# UNPACK #-} !Symbol
-    -- ^ A literal symbol value.
-  | ValueF32 {-# UNPACK #-} !Float
-    -- ^ A literal 32-bit floating point number value.
-  | ValueI32 {-# UNPACK #-} !Int32
-    -- ^ A literal 32-bit integer value.
-  | ValueLam {-# UNPACK #-} !Lambda
-    -- ^ A literal function value.
-  deriving (Eq, Generic, Ord, Lift)
-
--- | @since 1.0.0
-instance Display Value where
-  display (ValueB    x) = if x then Doc.string "#t" else Doc.string "#f"
-  display (ValueC    x) = Doc.string "#\\" <> Doc.char x
-  display (ValueS    x) = display x
-  display (ValueF32  x) = Doc.string (show x)
-  display (ValueI32  x) = Doc.string (show x)
-  display (ValueLam  x) = Doc.string (show x)
-
--- | @since 1.0.0
-instance NFData Value
-
--- | @since 1.0.0
-instance Show Value where
-  show = Doc.pretty . display
-
--- Datum - Optics --------------------------------------------------------------
-
--- | Prism focusing on the 'ValueB' constructor of 'Datum'.
---
--- @since 1.0.0
-valueBool :: Prism' Value Bool
-valueBool = prism' ValueB \case { ValueB x -> Just x; _ -> Nothing }
-{-# INLINE valueBool #-}
-
--- | Prism focusing on the 'ValueC' constructor of 'Datum'.
---
--- @since 1.0.0
-valueChar :: Prism' Value Char
-valueChar = prism' ValueC \case { ValueC x -> Just x; _ -> Nothing }
-{-# INLINE valueChar #-}
-
--- | Prism focusing on the 'ValueS' constructor of 'Datum'.
---
--- @since 1.0.0
-valueSymbol :: Prism' Value Symbol
-valueSymbol = prism' ValueS \case { ValueS x -> Just x; _ -> Nothing }
-{-# INLINE valueSymbol #-}
-
--- | Prism focusing on the 'ValueF32' constructor of 'Datum'.
---
--- @since 1.0.0
-valueF32 :: Prism' Value Float
-valueF32 = prism' ValueF32 \case { ValueF32 x -> Just x; _ -> Nothing }
-{-# INLINE valueF32 #-}
-
--- | Prism focusing on the 'DatumI32' constructor of 'Datum'.
---
--- @since 1.0.0
-valueI32 :: Prism' Value Int32
-valueI32 = prism' ValueI32 \case { ValueI32 x -> Just x; _ -> Nothing }
-{-# INLINE valueI32 #-}
-
--- | Prism focusing on the 'ValueLam' constructor of 'Datum'.
---
--- @since 1.0.0
-valueLambda :: Prism' Value Lambda
-valueLambda = prism' ValueLam \case { ValueLam x -> Just x; _ -> Nothing }
-{-# INLINE valueLambda #-}
 
 -- Datum -----------------------------------------------------------------------
 
@@ -206,6 +126,8 @@ valueLambda = prism' ValueLam \case { ValueLam x -> Just x; _ -> Nothing }
 -- @since 1.0.0
 data Datum
   = DatumVal Value
+    -- ^ TODO: docs
+  | DatumLam Lambda
     -- ^ TODO: docs
   | DatumList [Datum]
     -- ^ A list of datums.
@@ -243,12 +165,6 @@ pattern DatumF32 x = DatumVal (ValueF32 x)
 pattern DatumI32 :: Int32 -> Datum
 pattern DatumI32 x = DatumVal (ValueI32 x)
 
--- | Pattern synonym for @('DatumVal' (ValueLam _) _)@.
---
--- @since 1.0.0
-pattern DatumLam :: Lambda -> Datum
-pattern DatumLam x = DatumVal (ValueLam x)
-
 {-# COMPLETE
   DatumB, DatumC, DatumS, DatumF32, DatumI32, DatumLam, DatumList, DatumStx
   #-}
@@ -260,7 +176,7 @@ instance Display Datum where
   display (DatumList x) = displayList x
   display (DatumStx  x) = display x
 
-  displayList xs = Doc.string "'(" <> Doc.sepMap display (Doc.char ' ') xs <> Doc.char ')'
+  displayList xs = Doc.char '\'' <> Doc.parens (Doc.vsep (map display xs))
 
 -- | @since 1.0.0
 instance NFData Datum
@@ -361,6 +277,8 @@ instance NFData Lambda
 instance Show Lambda where
   show = Doc.pretty . display
 
+-- Lambda - Basic Operations ---------------------------------------------------
+
 -- Lambda - Optics -------------------------------------------------------------
 
 -- | Lens focusing on the 'lambda_args' field of 'Lambda'.
@@ -406,10 +324,6 @@ instance Display SExp where
   display (SApp exs) = displayList (NonEmpty.toList exs)
 
   displayList xs = Doc.string "(" <> Doc.sepMap display (Doc.char ' ') xs <> Doc.char ')'
-
--- | @since 1.0.0
-instance IsString SExp where
-  fromString = SVar . stringToSymbol
 
 -- | @since 1.0.0
 instance NFData SExp
@@ -485,8 +399,9 @@ idtScopes = idtInfo . stxInfoScopes
 --
 -- @since 1.0.0
 data Syntax
-  = SyntaxVal  Value    {-# UNPACK #-} !SyntaxInfo
-  | SyntaxList [Syntax] {-# UNPACK #-} !SyntaxInfo
+  = SyntaxVal  Value                  {-# UNPACK #-} !SyntaxInfo
+  | SyntaxLam  {-# UNPACK #-} !Lambda {-# UNPACK #-} !SyntaxInfo
+  | SyntaxList [Syntax]               {-# UNPACK #-} !SyntaxInfo
   deriving (Eq, Generic, Lift, Ord)
 
 -- | Pattern synonym for @('SyntaxVal' (ValueB _) _)@.
@@ -518,12 +433,6 @@ pattern SyntaxF32 x info = SyntaxVal (ValueF32 x) info
 -- @since 1.0.0
 pattern SyntaxI32 :: Int32 -> SyntaxInfo -> Syntax
 pattern SyntaxI32 x info = SyntaxVal (ValueI32 x) info
-
--- | Pattern synonym for @('SyntaxVal' (ValueLam _) _)@.
---
--- @since 1.0.0
-pattern SyntaxLam :: Lambda -> SyntaxInfo -> Syntax
-pattern SyntaxLam x info = SyntaxVal (ValueLam x) info
 
 {-# COMPLETE SyntaxB, SyntaxC, SyntaxS, SyntaxF32, SyntaxI32, SyntaxLam, SyntaxList #-}
 
@@ -558,6 +467,7 @@ instance Show Syntax where
 -- @since 1.0.0
 datumToSyntax :: SyntaxInfo -> Datum -> Syntax
 datumToSyntax info (DatumVal  val)  = SyntaxVal val info
+datumToSyntax info (DatumLam  fun)  = SyntaxLam fun info
 datumToSyntax info (DatumList vals) = SyntaxList (map (datumToSyntax info) vals) info
 datumToSyntax _    (DatumStx  stx)  = stx
 
@@ -567,6 +477,7 @@ datumToSyntax _    (DatumStx  stx)  = stx
 -- @since 1.0.0
 syntaxToDatum :: Syntax -> Datum
 syntaxToDatum (SyntaxVal  val  _) = DatumVal val
+syntaxToDatum (SyntaxLam  fun  _) = DatumLam fun
 syntaxToDatum (SyntaxList stxs _) = DatumList (map syntaxToDatum stxs)
 
 -- | TODO: docs
@@ -615,6 +526,9 @@ syntaxScope :: Maybe Phase -> Scope -> Syntax -> Syntax
 syntaxScope ph sc (SyntaxVal val info) =
   let info' = over stxInfoScopes (ScopeInfo.insert ph sc) info
    in SyntaxVal val info'
+syntaxScope ph sc (SyntaxLam val info) =
+  let info' = over stxInfoScopes (ScopeInfo.insert ph sc) info
+   in SyntaxLam val info'
 syntaxScope ph sc (SyntaxList stxs info) =
   let stxs' = map (syntaxScope ph sc) stxs
       info' = over stxInfoScopes (ScopeInfo.insert ph sc) info
@@ -627,6 +541,9 @@ syntaxFlipScope :: Phase -> Scope -> Syntax -> Syntax
 syntaxFlipScope ph sc (SyntaxVal val info) =
   let info' = over stxInfoScopes (ScopeInfo.flipScope ph sc) info
    in SyntaxVal val info'
+syntaxFlipScope ph sc (SyntaxLam val info) =
+  let info' = over stxInfoScopes (ScopeInfo.flipScope ph sc) info
+   in SyntaxLam val info'
 syntaxFlipScope ph sc (SyntaxList stxs info) =
   let stxs' = map (syntaxFlipScope ph sc) stxs
       info' = over stxInfoScopes (ScopeInfo.flipScope ph sc) info
@@ -639,6 +556,9 @@ syntaxPrune :: Phase -> ScopeSet -> Syntax -> Syntax
 syntaxPrune ph scps (SyntaxVal val info) =
   let info' = over stxInfoScopes (ScopeInfo.deletes ph scps) info
    in SyntaxVal val info'
+syntaxPrune ph scps (SyntaxLam val info) =
+  let info' = over stxInfoScopes (ScopeInfo.deletes ph scps) info
+   in SyntaxLam val info'
 syntaxPrune ph scps (SyntaxList stxs info) =
   let stxs' = map (syntaxPrune ph scps) stxs
       info' = over stxInfoScopes (ScopeInfo.deletes ph scps) info
@@ -660,10 +580,12 @@ syntaxInfo = lens getter setter
   where
     getter :: Syntax -> SyntaxInfo
     getter (SyntaxVal  _ info) = info
+    getter (SyntaxLam  _ info) = info
     getter (SyntaxList _ info) = info
 
     setter :: Syntax -> SyntaxInfo -> Syntax
     setter (SyntaxVal  val  _) info = SyntaxVal  val  info
+    setter (SyntaxLam  fun  _) info = SyntaxLam  fun  info
     setter (SyntaxList stxs _) info = SyntaxList stxs info
 
 -- | Compound lens focusing on @('stxInfo' . 'stxInfoProperties')@ field of a
@@ -780,9 +702,9 @@ instance NFData SyntaxInfo
 --
 -- >>> defaultSyntaxInfo
 -- SyntaxInfo
---   { stx_info_source = Nothing
---   , stx_info_srcloc = Nothing
---   , stx_info_scopes = ScopeInfo (fromList []) (fromList [])
+--   { stx_info_source      = Nothing
+--   , stx_info_scopes      = ScopeInfo (fromList []) (fromList [])
+--   , stx_info_properties = fromList []
 --   }
 --
 -- @since 1.0.0

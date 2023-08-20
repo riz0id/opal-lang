@@ -125,6 +125,7 @@ library
     Opal.Syntax.ScopeInfo
     Opal.Syntax.Transformer
     Opal.Syntax.TH
+    Opal.Syntax.Value
     Opal.Writer
     Opal.Writer.Class
     Opal.Writer.Doc
