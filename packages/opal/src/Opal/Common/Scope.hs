@@ -39,22 +39,26 @@ import Opal.Writer.Doc qualified as Doc (hsep, string)
 
 import System.IO.Unsafe (unsafePerformIO)
 
--- MonadScope ------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
-sourceScope :: IORef Word
-sourceScope = unsafePerformIO (newIORef 0)
+scopeSource :: IORef Word
+scopeSource = unsafePerformIO (newIORef 0)
+{-# NOINLINE scopeSource #-}
+
+-- MonadScope ------------------------------------------------------------------
 
 -- | TODO: docs
 --
 -- @since 1.0.0
 class Monad m => MonadScope m where
+  -- | TODO: docs
+  --
+  -- @since 1.0.0
   newScope :: m Scope
 
 -- | @since 1.0.0
 instance MonadScope IO where
-  newScope = do
-    sid <- atomicModifyIORef' sourceScope \x -> (1 + x, x)
-    pure (Scope sid)
+  newScope = atomicModifyIORef' scopeSource \x -> (1 + x, Scope x)
 
 -- Scope -----------------------------------------------------------------------
 

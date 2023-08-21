@@ -87,10 +87,13 @@ import Prelude hiding (foldl, foldr)
 
 import System.IO.Unsafe (unsafeDupablePerformIO, unsafePerformIO)
 
--- MonadGenSym -----------------------------------------------------------------
+--------------------------------------------------------------------------------
 
-sourceGenSym :: IORef Word
-sourceGenSym = unsafePerformIO (newIORef 0)
+genSymSource :: IORef Word
+genSymSource = unsafePerformIO (newIORef 0)
+{-# NOINLINE genSymSource #-}
+
+-- MonadGenSym -----------------------------------------------------------------
 
 -- | TODO: docs
 --
@@ -100,9 +103,9 @@ class Monad m => MonadGenSym m where
 
 -- | @since 1.0.0
 instance MonadGenSym IO where
-  newGenSym = do
-    uuid <- atomicModifyIORef' sourceGenSym \x -> (1 + x, x)
-    pure (stringToSymbol ('g' : show uuid))
+  newGenSym =
+    atomicModifyIORef' genSymSource \x ->
+      (1 + x, stringToSymbol ('g' : show x))
 
 -- Symbol ----------------------------------------------------------------------
 
@@ -159,7 +162,7 @@ instance Show Symbol where
 
 -- Symbol - Basic Operations ---------------------------------------------------
 
--- | \(O(n)\). Packs the contents of a 'String' into a 'Symbol'.
+-- | Packs the contents of a 'String' into a 'Symbol'.
 --
 -- @since 1.0.0
 stringToSymbol :: String -> Symbol
@@ -170,26 +173,26 @@ stringToSymbol str = unsafeDupablePerformIO do
   pure (Symbol fp len)
 {-# INLINE [0] stringToSymbol #-}
 
--- | \(O(n)\). Unpacks the contents of a 'Symbol' as a 'String'.
+-- | Unpacks the contents of a 'Symbol' as a 'String'.
 --
 -- @since 1.0.0
 symbolToString :: Symbol -> String
 symbolToString = foldr (:) ""
 {-# INLINE [0] symbolToString #-}
 
--- | \(O(n)\). TODO: docs
+-- | TODO: docs
 --
 -- @since 1.0.0
 symbolFromPtr :: Ptr Word8 -> Int -> Symbol
 symbolFromPtr (Ptr ptr#) = symbolFromCStringLen ptr#
 
--- | \(O(n)\). TODO: docs
+-- | TODO: docs
 --
 -- @since 1.0.0
 symbolFromCString :: Addr# -> Symbol
 symbolFromCString ptr# = symbolFromCStringLen ptr# (I# (GHC.cstringLength# ptr#))
 
--- | \(O(n)\). TODO: docs
+-- | TODO: docs
 --
 -- @since 1.0.0
 symbolFromCStringLen :: Addr# -> Int -> Symbol
@@ -207,13 +210,13 @@ symbolFromCStringLen src# len = unsafeDupablePerformIO do
 
   #-}
 
--- | \(O(n)\). Computes the hash of the given symbol's contents.
+-- | Computes the hash of the given symbol's contents.
 --
 -- @since 1.0.0
 hashSymbol :: Maybe Int -> Symbol -> Int
 hashSymbol salt (Symbol fp len) = unsafeDupablePerformIO (hashForeignPtr salt fp len)
 
--- | \(O(1)\). @'(takeSymbol' n s)@ will take the first @n@ characters of the
+-- | @'(takeSymbol' n s)@ will take the first @n@ characters of the
 -- given 'Symbol'.
 --
 -- @since 1.0.0
@@ -225,7 +228,7 @@ takeSymbol n s =
         then Nothing
         else Just (stringToSymbol substr)
 
--- | \(O(1)\). @('dropSymbol' n s)@ will take the first
+-- | @('dropSymbol' n s)@ will take the first
 --
 -- @since 1.0.0
 dropSymbol :: Int -> Symbol -> Maybe Symbol
@@ -236,13 +239,13 @@ dropSymbol n s =
         then Nothing
         else Just (stringToSymbol substr)
 
--- | \(O(1)\). Obtain the first character of a 'Symbol'.
+-- | Obtain the first character of a 'Symbol'.
 --
 -- @since 1.0.0
 symbolHead :: Symbol -> Char
 symbolHead (Symbol fp _) = fst (unsafeDupablePerformIO (withForeignPtr fp readUtf8OffPtr))
 
--- | \(O(1)\). Extract the tail of the 'Symbol'.
+-- | Extract the tail of the 'Symbol'.
 --
 -- @since 1.0.0
 symbolTail :: Symbol -> Maybe Symbol
@@ -254,7 +257,7 @@ symbolTail (Symbol fp len)
 
 -- Symbol - Comparisons --------------------------------------------------------
 
--- | \(O(n)\). Compare the contents of the two given symbols for equality
+-- | Compare the contents of the two given symbols for equality
 --
 -- @since 1.0.0
 eqSymbol :: Symbol -> Symbol -> Bool
@@ -262,7 +265,7 @@ eqSymbol (Symbol fp1 len1) (Symbol fp2 len2)
   | len1 == len2 = unsafeDupablePerformIO (eqOffForeignPtr fp1 fp2 len1)
   | otherwise    = False
 
--- | \(O(n)\). Compare the contents of the two given symbols.
+-- | Compare the contents of the two given symbols.
 --
 -- @since 1.0.0
 compareSymbol :: Symbol -> Symbol -> IO Ordering
