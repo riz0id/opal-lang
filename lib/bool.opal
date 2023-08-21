@@ -1,14 +1,7 @@
-(module bool
-  (import)
+(begin
+  (define true #t)
 
-  (export
-    true
-    false)
+  (define false #f)
 
-  (module-begin
-    (define true #t)
-
-    (define false #f)
-
-  )
+  true
 )

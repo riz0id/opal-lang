@@ -40,6 +40,8 @@ import Opal.Syntax.ScopeInfo qualified as ScopeInfo
 data CoreForm
   = CoreApp
     -- ^ The enumeration for the "#%app" core syntactic form.
+  | CoreDatum
+    -- ^ The enumeration for the "#%datum" core syntactic form.
   | CoreBegin
     -- ^ The enumeration for the "begin" core syntactic form.
   | CoreDefine
@@ -100,6 +102,7 @@ coreFormSymbol = stringToSymbol . coreFormString
 -- @since 1.0.0
 coreFormString :: CoreForm -> String
 coreFormString CoreApp          = "#%app"
+coreFormString CoreDatum        = "#%datum"
 coreFormString CoreBegin        = "begin"
 coreFormString CoreDefine       = "define"
 coreFormString CoreDefineSyntax = "define-syntax"

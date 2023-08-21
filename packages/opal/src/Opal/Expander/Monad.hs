@@ -35,7 +35,7 @@ module Opal.Expander.Monad
     -- * ExpandConfig
   , ExpandConfig (..)
     -- ** Basic Operations
-  , coreExpandConfig
+  , defaultExpandConfig
     -- ** Lenses
   , expandEnvironment
   , expandCurrentPhase
@@ -44,6 +44,8 @@ module Opal.Expander.Monad
   , ExpandError (..)
     -- * ExpandState
   , ExpandState (..)
+    -- ** Basic Operations
+  , defaultExpandState
     -- ** Lenses
   , expandBindingStore
   , expandNamespace
@@ -81,17 +83,19 @@ import Opal.Error
   , ErrorAmbiguous
   , ErrorNotBound (..)
   , ErrorNotInScope
+  , ErrorBadSyntax
+  , ErrorNoModule
   )
 import Opal.Error.ErrorCode.TH (makeErrorCode)
 import Opal.Reader (ReaderError)
 import Opal.Resolve (ResolveError (..), resolve)
 import Opal.Syntax
-import Opal.Core (CoreForm)
 import Opal.Syntax.Transformer (Transformer(..))
 import Opal.Writer (Display (..), Doc, (<+>))
 import Opal.Writer qualified as Doc
 import Opal.Expander.State
   ( ExpandState(..)
+  , defaultExpandState
   , expandBindingStore
   , expandEnvironment
   , expandIntroScopes
@@ -101,7 +105,7 @@ import Opal.Expander.State
 import Opal.Expander.Config
   ( ExpandConfig (..)
   , ExpansionContext (..)
-  , coreExpandConfig
+  , defaultExpandConfig
   , expandCurrentPhase
   , expandContext
   , expansionContextString
@@ -176,6 +180,7 @@ resolveId id = do
   phase <- view expandCurrentPhase
   store <- use expandBindingStore
   logExpand (LogResolveId id)
+  liftIO (print store)
   case resolve phase id store of
     Left  exn -> throwError (resolveToExpandError exn)
     Right s   -> pure s
@@ -239,9 +244,11 @@ data ExpandError
     -- ^ TODO: docs
   | ErrorBadContext Syntax [ExpansionContext] ExpansionContext
     -- ^ TODO: docs
-  | ErrorBadSyntax CoreForm {-# UNPACK #-} !Syntax
+  | ExpandBadSyntax {-# UNPACK #-} !ErrorBadSyntax
     -- ^ TODO: docs
   | ExpandReaderError (ParseErrorBundle Text ReaderError)
+    -- ^ TODO: docs
+  | ExpandNoModule {-# UNPACK #-} !ErrorNoModule
     -- ^ TODO: docs
   deriving (Show)
 
@@ -250,6 +257,8 @@ instance Display ExpandError where
   display (ExpandAmbiguous x)  = display x
   display (ExpandNotInScope x) = display x
   display (ExpandNotBound x)   = display x
+  display (ExpandBadSyntax x)  = display x
+  display (ExpandNoModule x)   = display x
   display exn = case exn of
     ErrorBadContext stx ctxs ctx ->
       docExpandError (stx ^. syntaxInfo) "invalid expansion context"
@@ -268,13 +277,6 @@ instance Display ExpandError where
             , "context"
             ]
         ]
-    ErrorBadSyntax core stx ->
-      docExpandError (stx ^. syntaxInfo) ("bad" <+> display core <+> "syntax")
-        [ Doc.vsep
-            [ "while expanding the syntax object:"
-            , Doc.line <> display stx
-            ]
-        ]
     ExpandReaderError x -> Doc.string (errorBundlePretty x)
     where
       docExpandError :: SyntaxInfo -> Doc -> [Doc] -> Doc
@@ -291,8 +293,9 @@ instance Error ExpandError where
   errorCode (ExpandAmbiguous x)  = errorCode x
   errorCode (ExpandNotInScope x) = errorCode x
   errorCode (ExpandNotBound x)   = errorCode x
-  errorCode ErrorBadContext {}   = $(makeErrorCode "OPAL-10004" 'ErrorBadContext)
-  errorCode ErrorBadSyntax {}    = $(makeErrorCode "OPAL-10005" 'ErrorBadSyntax)
+  errorCode (ExpandBadSyntax x)  = errorCode x
+  errorCode (ExpandNoModule x)   = errorCode x
+  errorCode ErrorBadContext   {} = $(makeErrorCode "OPAL-10005" 'ErrorBadContext)
   errorCode ExpandReaderError {} = $(makeErrorCode "OPAL-10006" 'ExpandReaderError)
 
 -- ExpansionLog ----------------------------------------------------------------

@@ -1,4 +1,8 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DataKinds                #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
+{-# LANGUAGE TemplateHaskell          #-}
+{-# LANGUAGE TypeFamilyDependencies   #-}
+
 {-# OPTIONS_HADDOCK show-extensions #-}
 
 -- |
@@ -14,8 +18,10 @@
 --
 -- @since 1.0.0
 module Opal.Error.ErrorCode
-  ( -- * ErrorCode
-    ErrorCode (..)
+  ( -- * Diagnostic
+    Diagnostic
+    -- * ErrorCode
+  , ErrorCode (..)
     -- ** Optics
   , errorCodeNamespace
   , errorCodeNumber
@@ -29,9 +35,12 @@ import Data.Char (isAlpha, isUpper)
 import Data.Functor (void)
 import Data.Word (Word16)
 
+import GHC.TypeLits (Nat, Symbol)
+
 import Language.Haskell.TH (Pat (..))
 import Language.Haskell.TH.Syntax (Lift)
 
+import Opal.Common.Lens (defineLenses)
 import Opal.Common.TH (Pattern (..))
 import Opal.Writer.Class (Display(..))
 import Opal.Writer qualified as Doc
@@ -40,7 +49,19 @@ import Prelude hiding (id)
 
 import Text.Megaparsec (MonadParsec (..), single)
 import Text.Megaparsec.Char.Lexer (decimal)
-import Opal.Common.Lens (defineLenses)
+
+-- Diagnostic ------------------------------------------------------------------
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+type Diagnostic :: Symbol -> Nat
+type family Diagnostic e = n | n -> e where
+  Diagnostic "ErrorAmbiguous"  = 10001
+  Diagnostic "ErrorNotBound"   = 10002
+  Diagnostic "ErrorNotInScope" = 10003
+  Diagnostic "ErrorNoModule"   = 10004
+  Diagnostic "ErrorBadSyntax"  = 10005
 
 -- ErrorCode -------------------------------------------------------------------
 

@@ -23,7 +23,7 @@ module Opal.Expander.Config
     -- * ExpandConfig
   , ExpandConfig (..)
     -- ** Basic Operations
-  , coreExpandConfig
+  , defaultExpandConfig
     -- ** Lenses
   , expandCurrentPhase
   , expandContext
@@ -62,7 +62,7 @@ data ExpansionContext
 
 -- | @since 1.0.0
 instance Default ExpansionContext where
-  def = ContextTopLevel
+  def = ContextDefinition
 
 -- | @since 1.0.0
 instance Display ExpansionContext where
@@ -105,21 +105,16 @@ data ExpandConfig = ExpandConfig
 
 $(defineLenses ''ExpandConfig)
 
--- | 'ExpandConfig' defaults to 'coreExpandConfig'.
+-- | 'ExpandConfig' defaults to 'defaultExpandConfig'.
 --
 -- @since 1.0.0
 instance Default ExpandConfig where
-  def = coreExpandConfig
+  def = defaultExpandConfig
 
 -- ExpandConfig - Basic Operations ---------------------------------------------
 
--- | The default 'ExpandConfig' with bindings for the core syntactic forms.
+-- | The default 'ExpandConfig'.
 --
 -- @since 1.0.0
-coreExpandConfig :: ExpandConfig
-coreExpandConfig =
-  ExpandConfig
-    { expand_current_phase = def
-    , expand_context       = def
-    }
-
+defaultExpandConfig :: ExpandConfig
+defaultExpandConfig = ExpandConfig def def

@@ -24,7 +24,6 @@ module Opal.Evaluator
   , evalSExpBody
     -- ** Query
   , getVariable
-  , putVariable
     -- * EvalConfig
   , EvalConfig (..)
     -- * EvalError
@@ -42,8 +41,6 @@ import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (MonadReader(..))
 
 import Data.Default (Default (..))
-import Data.IORef (newIORef)
-import Data.IORef qualified as IORef
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 
@@ -110,8 +107,7 @@ evalSApp lam@(Lambda args body) sexps = do
     insertEnvironment :: (Symbol, SExp) -> Eval Environment -> Eval Environment
     insertEnvironment (arg, sexp) next = do
       val <- evalSExp sexp
-      tfm <- liftIO (fmap TfmVal (newIORef val))
-      fmap (Environment.insert arg tfm) next
+      fmap (Environment.insertDatum arg val) next
 
 -- | TODO: docs
 --
@@ -132,17 +128,7 @@ getVariable :: Symbol -> Eval Datum
 getVariable var = do
   env <- view evalEnvironment
   case Environment.lookup var env of
-    Nothing           -> throwError (EvalNotBound (ErrorNotBound (Identifier var def) var))
-    Just (TfmVal ref) -> liftIO (IORef.readIORef ref)
-    Just _            -> error ("getVariable: bad syntax: " <> show var)
+    Nothing             -> throwError (EvalNotBound (ErrorNotBound (Identifier var def) var))
+    Just (TfmDatum val) -> pure val
+    Just _              -> error ("getVariable: bad syntax: " <> show var)
 
--- | TODO: docs
---
--- @since 1.0.0
-putVariable :: Symbol -> Datum -> Eval ()
-putVariable var val = do
-  env <- view evalEnvironment
-  case Environment.lookup var env of
-    Nothing           -> throwError (EvalNotBound (ErrorNotBound (Identifier var def) var))
-    Just (TfmVal ref) -> liftIO (IORef.writeIORef ref val)
-    Just _            -> error ("putVariable: bad syntax: " <> show var)

@@ -24,6 +24,7 @@ module Opal.Module.Import
   , Import (..)
     -- ** Basic Operations
   , defaultImport
+  , importPhaseLevels
   , importToSyntax
     -- ** Optics
   , importPhase
@@ -34,14 +35,14 @@ import Opal.Common.Lens (defineLenses)
 
 import Data.Default (Default (..))
 
-import Opal.Common.Phase (Phase)
-import Opal.Common.Symbol (Symbol)
+import Opal.Common.Phase (PhaseShift)
+import Opal.Syntax (Syntax)
+import Opal.Syntax.TH (syntax)
 import Opal.Writer (Display (..), (<+>))
 import Opal.Writer qualified as Doc
 
-import Prelude hiding (mod)
-import Opal.Syntax.TH (syntax)
-import Opal.Syntax (Syntax)
+import Prelude hiding (id, mod)
+import Opal.Common.Symbol (Symbol)
 
 -- ImportSpec ------------------------------------------------------------------
 
@@ -81,7 +82,7 @@ importSpecToSyntax (ImportSpecForSyntax s) = [syntax| (for-syntax ?s:symbol) |]
 --
 -- @since 1.0.0
 data Import = Import
-  { import_phase :: {-# UNPACK #-} !Phase
+  { import_phase :: {-# UNPACK #-} !PhaseShift
     -- ^ TODO: docs
   , import_specs :: [ImportSpec]
     -- ^ TODO: docs
@@ -114,6 +115,16 @@ instance Display Import where
 -- @since 1.0.0
 defaultImport :: Import
 defaultImport = Import def def
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+importPhaseLevels :: Import -> [(PhaseShift, Symbol)]
+importPhaseLevels (Import sh spec) = foldr run [] spec
+  where
+    run :: ImportSpec -> [(PhaseShift, Symbol)] -> [(PhaseShift, Symbol)]
+    run (ImportSpecPhaseless s) xs = (sh, s) : xs
+    run (ImportSpecForSyntax s) xs = (1 + sh, s) : xs
 
 -- | TODO: docs
 --

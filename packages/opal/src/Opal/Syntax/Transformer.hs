@@ -15,10 +15,17 @@
 module Opal.Syntax.Transformer
   ( -- * Transformer
     Transformer (..)
+    -- ** Basic Operations
+    -- ** Optics
+  , transformerCore
+  , transformerVal
+    -- ** Query
+  , isCoreTransformer
   )
 where
 
-import Data.IORef (IORef, readIORef)
+import Control.Lens (Prism', prism')
+import Control.Lens.Extras (is)
 
 import Opal.Core (CoreForm)
 import Opal.Writer (Display(..), Doc, (<+>))
@@ -27,26 +34,25 @@ import Opal.Syntax (Datum)
 
 import Prelude hiding (id)
 
-import System.IO.Unsafe (unsafePerformIO)
-
 -- Transformer -----------------------------------------------------------------
 
 -- | 'Transformer' is the type used to represent compile-time "meanings".
 --
 -- @since 1.0.0
 data Transformer
-  = TfmCore CoreForm
+  = TfmCore  CoreForm
     -- ^ 'TfmCore' is a reference to a core form.
-  | TfmVal (IORef Datum)
+  | TfmDatum Datum
     -- ^ 'TfmVal' is a compile-time value. In the special case that the
     -- compile-time value is a function, then that function is a macro
     -- transformer.
+  deriving (Eq, Ord)
 
 -- | @since 1.0.0
 instance Display Transformer where
   display = \case
-    TfmCore core -> docTransformer core
-    TfmVal  ref  -> unsafePerformIO (docTransformer <$> readIORef ref)
+    TfmCore  core -> docTransformer core
+    TfmDatum val  -> docTransformer val
     where
       docTransformer :: Display a => a -> Doc
       docTransformer x = Doc.string "<transformer:" <+> display x <> Doc.char '>'
@@ -54,3 +60,27 @@ instance Display Transformer where
 -- | @since 1.0.0
 instance Show Transformer where
   show = Doc.pretty . display
+
+-- Transformer - Basic Operations ----------------------------------------------
+
+-- Transformer - Optics --------------------------------------------------------
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+transformerCore :: Prism' Transformer CoreForm
+transformerCore = prism' TfmCore \case TfmCore x -> Just x; _ -> Nothing
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+transformerVal :: Prism' Transformer Datum
+transformerVal = prism' TfmDatum \case TfmDatum x -> Just x; _ -> Nothing
+
+-- Transformer - Query ---------------------------------------------------------
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+isCoreTransformer :: Transformer -> Bool
+isCoreTransformer = is transformerCore

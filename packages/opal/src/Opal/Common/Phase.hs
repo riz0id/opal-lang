@@ -162,5 +162,9 @@ newtype PhaseShift = PhaseShift Word
   deriving newtype (Eq, NFData, Num, Ord, Show)
 
 -- | @since 1.0.0
+instance Default PhaseShift where
+  def = PhaseShift 0
+
+-- | @since 1.0.0
 instance Display PhaseShift where
   display (PhaseShift p) = Doc.group (Doc.hsep [Doc.string "phase-shift", display p])

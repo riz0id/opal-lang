@@ -25,6 +25,8 @@ module Opal.Binding.Environment
   , coreEnvironment
     -- ** Insert
   , insert
+  , insertCore
+  , insertDatum
     -- ** Delete
   , delete
     -- ** Lookup
@@ -44,7 +46,8 @@ import GHC.Exts (IsList (..))
 import GHC.Generics (Generic)
 
 import Opal.Common.Symbol (Symbol)
-import Opal.Core (coreFormSymbol)
+import Opal.Core (CoreForm, coreFormSymbol)
+import Opal.Syntax (Datum)
 import Opal.Syntax.Transformer (Transformer (..))
 import Opal.Writer.Class (Display (..))
 import Opal.Writer.Doc qualified as Doc
@@ -106,6 +109,18 @@ coreEnvironment = fromList [ (coreFormSymbol x, TfmCore x) | x <- [minBound .. m
 -- @since 1.0.0
 insert :: Symbol -> Transformer -> Environment -> Environment
 insert = coerce @(_ -> Transformer -> _) Map.insert
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+insertCore :: Symbol -> CoreForm -> Environment -> Environment
+insertCore s = insert s . TfmCore
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+insertDatum :: Symbol -> Datum -> Environment -> Environment
+insertDatum s = insert s . TfmDatum
 
 -- Environment - Delete -------------------------------------------------------
 

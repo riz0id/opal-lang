@@ -18,6 +18,8 @@
 module Opal.Expander.State
   ( -- * ExpandState
     ExpandState (..)
+    -- ** Basic Operations
+  , defaultExpandState
     -- ** Lenses
   , expandBindingStore
   , expandEnvironment
@@ -32,8 +34,7 @@ import Data.Default (Default (..))
 import GHC.Generics (Generic)
 
 import Opal.Binding.BindingStore (BindingStore)
-import Opal.Binding.BindingStore qualified as BindingStore
-import Opal.Binding.Environment (Environment, coreEnvironment)
+import Opal.Binding.Environment (Environment)
 import Opal.Common.Lens (defineLenses)
 import Opal.Common.ScopeSet (ScopeSet)
 import Opal.Module (Namespace (..))
@@ -64,23 +65,16 @@ data ExpandState = ExpandState
 
 $(defineLenses ''ExpandState)
 
--- | 'ExpandState' defaults to 'coreExpandState'.
+-- | 'ExpandState' defaults to 'defaultExpandState'.
 --
 -- @since 1.0.0
 instance Default ExpandState where
-  def = coreExpandState
+  def = defaultExpandState
 
 -- ExpandState - Basic Operations ----------------------------------------------
 
 -- | TODO: docs
 --
 -- @since 1.0.0
-coreExpandState :: ExpandState
-coreExpandState =
-  ExpandState
-    { expand_binding_store = BindingStore.coreBindingStore
-    , expand_environment   = coreEnvironment
-    , expand_namespace     = def
-    , expand_intro_scopes  = def
-    , expand_usage_scopes  = def
-    }
+defaultExpandState :: ExpandState
+defaultExpandState = ExpandState def def def def def

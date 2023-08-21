@@ -21,11 +21,6 @@ module Opal.Parser.Monad
     Parse (..)
     -- ** Basic Operations
   , runParse
-    -- ** Error Operations
-  , throwEmptyAppParseError
-  , throwLambdaParseError
-  , throwQuoteParseError
-  , throwQuoteSyntaxParseError
     -- * ParseConfig
   , ParseConfig (..)
     -- ** Lenses
@@ -33,8 +28,6 @@ module Opal.Parser.Monad
   , parseCurrentPhase
     -- * ParseError
   , ParseError (..)
-    -- * CoreParseError
-  , CoreParseError (..)
   )
 where
 
@@ -50,8 +43,7 @@ import GHC.Generics (Generic)
 import Opal.Binding.BindingStore (BindingStore)
 import Opal.Common.Lens (defineLenses)
 import Opal.Common.Phase (Phase)
-import Opal.Error (ErrorAmbiguous (..))
-import Opal.Syntax (Syntax, SyntaxInfo)
+import Opal.Error (ErrorAmbiguous (..), ErrorBadSyntax)
 
 -- Parse -----------------------------------------------------------------------
 
@@ -80,57 +72,15 @@ runParse c parse =
     & flip runReaderT c
     & runExceptT
 
--- Parse - Error Operations ----------------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-throwEmptyAppParseError :: SyntaxInfo -> Parse a
-throwEmptyAppParseError = throwError . ParseErrorEmptyApp
-
--- | TODO: docs
---
--- @since 1.0.0
-throwLambdaParseError :: Syntax -> Parse a
-throwLambdaParseError = throwError . ParseErrorCore . ParseErrorLambda
-
--- | TODO: docs
---
--- @since 1.0.0
-throwQuoteParseError :: Syntax -> Parse a
-throwQuoteParseError = throwError . ParseErrorCore . ParseErrorQuote
-
--- | TODO: docs
---
--- @since 1.0.0
-throwQuoteSyntaxParseError :: Syntax -> Parse a
-throwQuoteSyntaxParseError = throwError . ParseErrorCore . ParseErrorSyntax
-
 -- ParseError ------------------------------------------------------------------
 
 -- | TODO: docs
 --
 -- @since 1.0.0
 data ParseError
-  = ParseErrorAmbiguous {-# UNPACK #-} !ErrorAmbiguous
+  = ParseAmbiguous {-# UNPACK #-} !ErrorAmbiguous
     -- ^ TODO: docs
-  | ParseErrorEmptyApp {-# UNPACK #-} !SyntaxInfo
-    -- ^ TODO: docs
-  | ParseErrorCore CoreParseError
-    -- ^ TODO: docs
-  deriving (Show)
-
--- CoreParseError --------------------------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-data CoreParseError
-  = ParseErrorLambda {-# UNPACK #-} !Syntax
-    -- ^ TODO: docs
-  | ParseErrorQuote  {-# UNPACK #-} !Syntax
-    -- ^ TODO: docs
-  | ParseErrorSyntax {-# UNPACK #-} !Syntax
+  | ParseBadSyntax {-# UNPACK #-} !ErrorBadSyntax
     -- ^ TODO: docs
   deriving (Show)
 

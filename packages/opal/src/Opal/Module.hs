@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLists   #-}
 {-# LANGUAGE QuasiQuotes       #-}
 {-# LANGUAGE TemplateHaskell   #-}
 {-# OPTIONS_HADDOCK show-extensions #-}
@@ -40,6 +41,9 @@ module Opal.Module
     -- ** Basic Operations
   , newModule
   , newCoreModule
+  , moduleBinding
+  , moduleExportPhaseLevels
+  , moduleImportPhaseLevels
   , moduleToSyntax
     -- ** Optics
   , moduleName
@@ -56,7 +60,7 @@ module Opal.Module
 
 import Control.Applicative ((<|>))
 
-import Control.Lens (Lens', lens, over, (^.))
+import Control.Lens (Lens', lens, over, view, (^.))
 
 import Data.Default (Default (..))
 import Data.Map.Strict (Map)
@@ -69,13 +73,16 @@ import Opal.Common.Lens (defineLenses)
 import Opal.Common.Phase (Phase, PhaseShift)
 import Opal.Common.Symbol (Symbol)
 import Opal.Module.Import
+import Opal.Module.Export
 import Opal.Writer (Display (..), Doc, (<+>))
 import Opal.Writer qualified as Doc
 import Opal.Syntax.Definition (Definition, definitionToSyntax)
-import Opal.Syntax (Syntax, syntaxScope, Identifier, Value)
+import Opal.Syntax (Identifier, Syntax, syntaxScope)
 import Opal.Syntax.TH (syntax)
+import Opal.Syntax.Transformer (Transformer (..))
 
-import Prelude hiding (mod)
+import Prelude hiding (id, mod)
+import Opal.Core (CoreForm (..), coreFormIdentifier)
 
 -- Definitions -----------------------------------------------------------------
 
@@ -83,9 +90,9 @@ import Prelude hiding (mod)
 --
 -- @since 1.0.0
 data Definitions = Definitions
-  { definitions_variables    :: Map Symbol Value
+  { definitions_transformers :: Map Identifier Transformer
     -- ^ TODO: docs
-  , definitions_transformers :: Map Symbol Value
+  , definitions_variables    :: Map Identifier Transformer
     -- ^ TODO: docs
   }
   deriving (Eq, Generic, Ord)
@@ -95,6 +102,38 @@ $(defineLenses ''Definitions)
 -- | @since 1.0.0
 instance Default Definitions where
   def = defaultDefinitions
+
+-- | @since 1.0.0
+instance Display Definitions where
+  display (Definitions trans vals) =
+    (Doc.parens . mconcat)
+      [ Doc.string "definitions"
+      , (Doc.indent 2 . Doc.parens . mconcat)
+          [ "begin-for-syntax"
+          , Doc.indent 2 (Doc.vsep (displayDefns trans))
+          ]
+      , (Doc.indent 2 . Doc.parens . mconcat)
+          [ "begin"
+          , Doc.indent 2 (Doc.vsep (displayDefns vals))
+          ]
+      ]
+    where
+      displayDefns :: Map Identifier Transformer -> [Doc]
+      displayDefns = Map.foldrWithKey (\id t xs -> displayDefn id t : xs) mempty
+
+      displayDefn :: Identifier -> Transformer -> Doc
+      displayDefn id (TfmCore  form) =
+        (Doc.parens . Doc.hsep)
+          [ "define"
+          , display id
+          , Doc.parens ("#%built-in" <+> display form)
+          ]
+      displayDefn id (TfmDatum val) =
+        (Doc.parens . Doc.hsep)
+          [ "define"
+          , display id
+          , display val
+          ]
 
 -- | @since 1.0.0
 instance Monoid Definitions where
@@ -139,11 +178,8 @@ instance Display Namespace where
   display (Namespace ph _ _ defns) =
     (Doc.parens . mconcat)
       [ Doc.string "namespace" <+> display ph
-      , Doc.indent 2 (Doc.vsep (map (uncurry displayDefinition) undefined))
+      , display (mconcat (Map.elems defns))
       ]
-    where
-      displayDefinition :: PhaseShift -> Definition -> Doc
-      displayDefinition ph' s = Doc.char '(' <> display ph' <+> display s <> Doc.char ')'
 
 -- | @since 1.0.0
 instance Show Namespace where
@@ -166,8 +202,8 @@ nsToModule s ns = Map.lookup s (ns ^. nsModuleDeclarations) <|> Map.lookup s (ns
 -- | TODO: docs
 --
 -- @since 1.0.0
-declareModule :: Namespace -> Symbol -> Module -> Bool -> Namespace
-declareModule ns s mod asSubmodule
+declareModule :: Symbol -> Module -> Bool -> Namespace -> Namespace
+declareModule s mod asSubmodule ns
   | asSubmodule = over nsSubmoduleDeclarations (Map.insert s mod) ns
   | otherwise   = over nsModuleDeclarations (Map.insert s mod) ns
 
@@ -212,25 +248,25 @@ nsDefinitions ph = nsPhases . lens getter setter
 -- | TODO: docs
 --
 -- @since 1.0.0
-nsTransformer :: Phase -> Symbol -> Lens' Namespace Value
+nsTransformer :: Phase -> Identifier -> Lens' Namespace Transformer
 nsTransformer ph s = nsDefinitions ph . definitionsTransformers . lens getter setter
   where
-    getter :: Map Symbol Value -> Value
+    getter :: Map Identifier Transformer -> Transformer
     getter = fromMaybe (error "unimplemented: #void") . Map.lookup s -- FIXME: implement #void datum
 
-    setter :: Map Symbol Value -> Value -> Map Symbol Value
+    setter :: Map Identifier Transformer -> Transformer -> Map Identifier Transformer
     setter vals val = Map.insert s val vals
 
 -- | TODO: docs
 --
 -- @since 1.0.0
-nsVariable :: Phase -> Symbol -> Lens' Namespace Value
+nsVariable :: Phase -> Identifier -> Lens' Namespace Transformer
 nsVariable ph s = nsDefinitions ph . definitionsVariables . lens getter setter
   where
-    getter :: Map Symbol Value -> Value
+    getter :: Map Identifier Transformer -> Transformer
     getter = fromMaybe (error "unimplemented: #void") . Map.lookup s -- FIXME: implement #void datum
 
-    setter :: Map Symbol Value -> Value -> Map Symbol Value
+    setter :: Map Identifier Transformer -> Transformer -> Map Identifier Transformer
     setter vals val = Map.insert s val vals
 
 -- Module ----------------------------------------------------------------------
@@ -241,9 +277,9 @@ nsVariable ph s = nsDefinitions ph . definitionsVariables . lens getter setter
 data Module = Module
   { module_name      :: Symbol
     -- ^ The name of this module.
-  , module_imports   :: [Import]
+  , module_imports   :: Import
     -- ^ TODO: docs
-  , module_exports   :: [(Phase, Identifier)]
+  , module_exports   :: Export
     -- ^ TODO: docs
   , module_namespace :: {-# UNPACK #-} !Namespace
     -- ^ The 'Namespace' attached to this module.
@@ -260,13 +296,10 @@ instance Display Module where
       , display name
       , (Doc.indent 2 . Doc.vsep)
           [ display imports
-          , Doc.hsep (map (uncurry displayExport) exports)
+          , display exports
           , display ns <> Doc.char ')'
           ]
       ]
-    where
-      displayExport :: Phase -> Identifier -> Doc
-      displayExport ph s = Doc.hsep [ "(export", display ph, display s <> Doc.char ')' ]
 
 -- | @since 1.0.0
 instance Show Module where
@@ -282,8 +315,8 @@ newModule :: Symbol -> Namespace -> Module
 newModule name ns =
   Module
     { module_name      = name
-    , module_imports   = []
-    , module_exports   = []
+    , module_imports   = def
+    , module_exports   = def
     , module_namespace = ns
     }
 
@@ -293,11 +326,43 @@ newModule name ns =
 newCoreModule :: Namespace -> Module
 newCoreModule ns =
   Module
-    { module_name      = "opal-core"
-    , module_imports   = []
-    , module_exports   = undefined
-    , module_namespace = undefined
+    { module_name      = "#%core"
+    , module_imports   = def
+    , module_exports   = Export def coreExportSpec
+    , module_namespace = coreNamespace
     }
+  where
+    coreForms :: [CoreForm]
+    coreForms = [minBound .. maxBound]
+
+    coreExportSpec :: [ExportSpec]
+    coreExportSpec = map (ExportSpecPhaseless . coreFormIdentifier) coreForms
+
+    coreNamespace :: Namespace
+    coreNamespace = foldr (\form -> over (nsVariable def (coreFormIdentifier form)) (const (TfmCore form))) ns coreForms
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+moduleBinding :: Module -> Phase -> Identifier -> Transformer
+moduleBinding mod ph s
+  | ph == def = ns ^. nsVariable ph s
+  | otherwise = ns ^. nsTransformer ph s
+  where
+    ns :: Namespace
+    ns = mod ^. moduleNamespace
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+moduleExportPhaseLevels :: Module -> [(PhaseShift, Identifier)]
+moduleExportPhaseLevels = exportPhaseLevels . view moduleExports
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+moduleImportPhaseLevels :: Module -> [(PhaseShift, Symbol)]
+moduleImportPhaseLevels = importPhaseLevels . view moduleImports
 
 -- | TODO: docs
 --
@@ -306,16 +371,16 @@ moduleToSyntax :: Module -> Syntax
 moduleToSyntax (Module name imports exports ns) =
   syntaxScope Nothing def [syntax|
     (module ?name:symbol
-      ?importStxs ...
-      (export ?exportIds:id ...)
+      ?importStx
+      ?exportStx
       ?exprStxs ...)
   |]
   where
-    importStxs :: [Syntax]
-    importStxs = map importToSyntax imports
+    importStx :: Syntax
+    importStx = importToSyntax imports
 
-    exportIds :: [Identifier]
-    exportIds = map snd exports
+    exportStx :: Syntax
+    exportStx = exportToSyntax exports
 
     exprStxs :: [Syntax]
     exprStxs = map (definitionToSyntax . snd) (ns ^. undefined)

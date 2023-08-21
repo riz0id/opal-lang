@@ -31,8 +31,6 @@ module Opal.Parser
   , parseCurrentPhase
     -- * ParseError
   , ParseError (..)
-    -- * CoreParseError
-  , CoreParseError (..)
   )
 where
 
@@ -47,6 +45,8 @@ import Opal.Parser.Monad
 import Opal.Resolve (ResolveError (..), resolve)
 import Opal.Syntax
 import Opal.Syntax.TH (syntax)
+import Opal.Core (CoreForm(..))
+import Opal.Error (ErrorBadSyntax(..))
 
 -- Parse - Basic Operations ----------------------------------------------------
 
@@ -63,18 +63,18 @@ runParseSyntax c = runParse c . parseSyntax
 -- @since 1.0.0
 parseSyntax :: Syntax -> Parse SExp
 parseSyntax stx@[syntax| () |] = do
-  throwEmptyAppParseError (stx ^. syntaxInfo)
+  throwError (ParseBadSyntax (ErrorBadSyntax CoreApp stx))
 parseSyntax stx@[syntax| (?fun:id ?stxs ...) |] = do
   fun' <- parseIdentifier fun
   if| fun' `eqSymbol` "lambda" -> case [syntax| (?stxs ...) |] of
       [syntax| ((?args:id ...) ?body) |] -> parseLambda args body
-      _                                  -> throwLambdaParseError stx
+      _                                  -> throwError (ParseBadSyntax (ErrorBadSyntax CoreLambda stx))
     | fun' `eqSymbol` "quote" -> case [syntax| (?stxs ...) |] of
         [syntax| (?arg) |] -> pure (SVal (syntaxToDatum arg))
-        _                  -> throwQuoteSyntaxParseError stx
+        _                  -> throwError (ParseBadSyntax (ErrorBadSyntax CoreQuote stx))
     | fun' `eqSymbol` "quote-syntax" -> case [syntax| (?stxs ...) |] of
       [syntax| (?arg) |] -> pure (SVal (DatumStx arg))
-      _                  -> throwQuoteSyntaxParseError stx
+      _                  -> throwError (ParseBadSyntax (ErrorBadSyntax CoreSyntax stx))
     | otherwise -> do
       idt'  <- parseIdentifier fun
       stxs' <- traverse parseSyntax stxs
@@ -106,6 +106,6 @@ parseIdentifier idt = do
   store <- view parseBindingStore
   case resolve phase idt store of
     Left  exn     -> case exn of
-      ResolveErrorAmbiguous x   -> throwError (ParseErrorAmbiguous x)
-      ResolveErrorNotInScope {} -> pure (idt ^. idtSymbol)
+      ResolveErrorAmbiguous  x -> throwError (ParseAmbiguous x)
+      ResolveErrorNotInScope _ -> pure (idt ^. idtSymbol)
     Right gensym  -> pure gensym
