@@ -31,19 +31,28 @@ module Opal.Parser.Monad
   )
 where
 
+import Control.Lens (view, (^.))
+
 import Control.Monad.Except (ExceptT, MonadError (..), runExceptT)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.Reader (MonadReader (..), ReaderT (..))
 
-import Data.Default (Default (..))
 import Data.Function ((&))
 
-import GHC.Generics (Generic)
-
-import Opal.Binding.BindingStore (BindingStore)
-import Opal.Common.Lens (defineLenses)
-import Opal.Common.Phase (Phase)
 import Opal.Error (ErrorAmbiguous (..), ErrorBadSyntax)
+import Opal.Parser.Config
+  ( ParseConfig (..)
+  , parseBindingStore
+  , parseCurrentPhase
+  )
+import Opal.Resolve
+  ( ResolveError(..)
+  , MonadResolve(..)
+  , resolveId
+  )
+import Opal.Syntax
+
+import Prelude hiding (id)
 
 -- Parse -----------------------------------------------------------------------
 
@@ -60,6 +69,16 @@ newtype Parse a = Parse
     , MonadError ParseError
     , MonadReader ParseConfig
     )
+
+-- | @since 1.0.0
+instance MonadResolve Parse where
+  resolve ph id = do
+    store <- view parseBindingStore
+    case resolveId ph id store of
+      Left  exn     -> case exn of
+        ResolveAmbiguous  x -> throwError (ParseAmbiguous x)
+        ResolveNotInScope _ -> pure (id ^. idtSymbol)
+      Right gensym  -> pure gensym
 
 -- Parse - Basic Operations ----------------------------------------------------
 
@@ -83,23 +102,3 @@ data ParseError
   | ParseBadSyntax {-# UNPACK #-} !ErrorBadSyntax
     -- ^ TODO: docs
   deriving (Show)
-
--- ParseConfig -----------------------------------------------------------------
-
--- | 'ParseConfig' is the read-only state of the 'Parse' monad.
---
--- @since 1.0.0
-data ParseConfig = ParseConfig
-  { parse_binding_store :: BindingStore
-    -- ^ A binding store that is threaded through parsing to substitute
-    -- identifiers with the generated symbols they are bound to.
-  , parse_current_phase :: {-# UNPACK #-} !Phase
-    -- ^ The current phase that 'Parse' is parsing at.
-  }
-  deriving (Generic, Show)
-
-$(defineLenses ''ParseConfig)
-
--- | @since 1.0.0
-instance Default ParseConfig where
-  def = ParseConfig def def

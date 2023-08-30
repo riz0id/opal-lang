@@ -219,7 +219,10 @@ instance Show Define where
 --
 -- @since 1.0.0
 defineToSyntax :: Define -> Syntax
-defineToSyntax (Define id stx) = [syntax| (define ?id:id ?stx) |]
+defineToSyntax (Define id stx) =
+  let coreId :: Syntax
+      coreId = syntaxScope Nothing def [syntax| define |]
+   in [syntax| (?coreId ?id:id ?stx) |]
 
 -- Define - Optics -------------------------------------------------------------
 
@@ -261,13 +264,16 @@ instance Display DefineSyntax where
 instance Show DefineSyntax where
   show (DefineSyntax idt defn) = "(define-syntax " ++ show idt ++ show defn ++ ")"
 
--- BeDefineSyntaxgin - Basic Operations ----------------------------------------
+-- DefineSyntax - Basic Operations ---------------------------------------------
 
 -- | Rebuild the given "define-syntax" definition as a raw syntax object.
 --
 -- @since 1.0.0
 defineSyntaxToSyntax :: DefineSyntax -> Syntax
-defineSyntaxToSyntax (DefineSyntax id stx) = [syntax| (define-syntax ?id:id ?stx) |]
+defineSyntaxToSyntax (DefineSyntax id stx) =
+  let coreId :: Syntax
+      coreId = syntaxScope Nothing def [syntax| define-syntax |]
+   in [syntax| (?coreId ?id:id ?stx) |]
 
 -- DefineSyntax - Optics -------------------------------------------------------
 

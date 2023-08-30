@@ -49,7 +49,7 @@ import Data.Set qualified as Set
 import GHC.Exts (IsList (..))
 import GHC.Generics (Generic)
 
-import Opal.Binding
+import Opal.Binding (Binding (..))
 import Opal.Common.Symbol (Symbol)
 import Opal.Common.ScopeSet (ScopeSet)
 import Opal.Common.ScopeSet qualified as ScopeSet

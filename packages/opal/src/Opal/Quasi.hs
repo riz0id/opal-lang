@@ -66,7 +66,7 @@ module Opal.Quasi
   )
 where
 
-import Control.Lens (Lens', lens, (^.), preview, review)
+import Control.Lens (Lens', lens, preview, review, (^.))
 
 import Data.Default (Default (..))
 import Data.Foldable (Foldable(..))
@@ -362,8 +362,14 @@ qvarToSyntaxP var = case var ^. qvarEllipsis of
       let varP  = VarP (quasiVarToName var)
       let viewE = VarE 'preview `AppE` VarE 'syntaxId
       pure (ViewP viewE (ConP 'Just [] [varP]))
-    QuasiClassStx -> pure (VarP (quasiVarToName var))
-    _             -> undefined
+    QuasiClassStx ->
+      pure (VarP (quasiVarToName var))
+    QuasiClassSymbol -> do
+      let varP  = VarP (quasiVarToName var)
+      let viewE = VarE 'preview `AppE` VarE 'syntaxSymbol
+      pure (ViewP viewE (ConP 'Just [] [varP]))
+    _ ->
+      undefined
   EllipsisMany -> do
     varP <- qvarToSyntaxesP var
     pure (ConP 'SyntaxList [] [varP, WildP])
@@ -379,8 +385,14 @@ qvarToSyntaxesP var = do
   let varP = VarP (quasiVarToName var)
   case var ^. qvarEllipsis of
     EllipsisNone -> case var ^. qvarKind of
-      QuasiClassStx -> pure (ListP [varP])
-      cls           -> pure (ListP [ViewP (toSyntaxViewerE cls) varP])
+      QuasiClassBool   -> pure (ListP [ConP 'SyntaxB [] [varP, WildP]])
+      QuasiClassChar   -> pure (ListP [ConP 'SyntaxC [] [varP, WildP]])
+      QuasiClassF32    -> pure (ListP [ConP 'SyntaxF32 [] [varP, WildP]])
+      QuasiClassI32    -> pure (ListP [ConP 'SyntaxI32 [] [varP, WildP]])
+      QuasiClassLam    -> pure (ListP [ConP 'SyntaxLam [] [varP, WildP]])
+      QuasiClassId     -> pure (ListP [ConP 'SyntaxId [] [varP]])
+      QuasiClassStx    -> pure (ListP [varP])
+      QuasiClassSymbol -> pure (ListP [ConP 'SyntaxS [] [varP, WildP]])
     EllipsisMany -> case var ^. qvarKind of
       QuasiClassStx -> pure varP
       cls           -> pure (ViewP (VarE 'traverse `AppE` toSyntaxViewerE cls) (ConP 'Just [] [varP]))

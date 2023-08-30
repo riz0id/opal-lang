@@ -59,6 +59,8 @@ data Value
     -- ^ A literal 32-bit floating point number value.
   | ValueI32 {-# UNPACK #-} !Int32
     -- ^ A literal 32-bit integer value.
+  | ValueVoid
+    -- ^ A literal void value.
   deriving (Eq, Generic, Ord, Lift)
 
 -- | @since 1.0.0
@@ -68,6 +70,7 @@ instance Display Value where
   display (ValueS    x) = display x
   display (ValueF32  x) = Doc.string (show x)
   display (ValueI32  x) = Doc.string (show x)
+  display ValueVoid     = Doc.string "#%void"
 
 -- | @since 1.0.0
 instance NFData Value

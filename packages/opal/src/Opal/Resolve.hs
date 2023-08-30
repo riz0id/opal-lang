@@ -13,10 +13,12 @@
 --
 -- @since 1.0.0
 module Opal.Resolve
-  ( -- * ResolveError
-    ResolveError (..)
-    -- * Binding Resolution
-  , resolve
+  ( -- * MonadResolve
+    MonadResolve (..)
+    -- * ResolveError
+  , ResolveError (..)
+    -- * Resolve
+  , resolveId
   )
 where
 
@@ -39,15 +41,26 @@ import Opal.Syntax.ScopeInfo qualified as ScopeInfo
 
 import Prelude hiding (id)
 
+-- MonadResolve ----------------------------------------------------------------
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+class MonadResolve m where
+  -- | TODO: docs
+  --
+  -- @since 1.0.0
+  resolve :: Phase -> Identifier -> m Symbol
+
 -- ResolveError ----------------------------------------------------------------
 
 -- | TODO: docs
 --
 -- @since 1.0.0
 data ResolveError
-  = ResolveErrorAmbiguous {-# UNPACK #-} !ErrorAmbiguous
+  = ResolveAmbiguous {-# UNPACK #-} !ErrorAmbiguous
     -- ^ TODO: docs
-  | ResolveErrorNotInScope {-# UNPACK #-} !ErrorNotInScope
+  | ResolveNotInScope {-# UNPACK #-} !ErrorNotInScope
     -- ^ TODO: docs
   deriving stock (Eq, Ord, Show)
 
@@ -62,20 +75,20 @@ ambiguous a b = not (a `ScopeSet.intersects` b)
 -- | TODO: docs
 --
 -- @since 1.0.0
-resolve :: Phase -> Identifier -> BindingStore -> Either ResolveError Symbol
-resolve ph id store = do
+resolveId :: Phase -> Identifier -> BindingStore -> Either ResolveError Symbol
+resolveId ph id store = do
   let s         = id ^. idtSymbol
   let scps      = ScopeInfo.lookup (Just ph) (id ^. idtScopes)
   let canidates = restrictBindings s scps store
   case Set.maxView canidates of
-    Nothing          -> throwError (ResolveErrorNotInScope (ErrorNotInScope id))
+    Nothing          -> throwError (ResolveNotInScope (ErrorNotInScope id))
     Just (elt, rest) -> do
       result <- foldM run elt rest
       pure (result ^. bindingSymbol)
   where
     run :: Binding -> Binding -> Either ResolveError Binding
     run b2@(Binding scps2 _) b1@(Binding scps1 _)
-      | scps1 `ambiguous` scps2 = throwError (ResolveErrorAmbiguous (ErrorAmbiguous id [b1, b2]))
+      | scps1 `ambiguous` scps2 = throwError (ResolveAmbiguous (ErrorAmbiguous id [b1, b2]))
       | otherwise               = pure (bestBinding b1 b2)
 
     bestBinding :: Binding -> Binding -> Binding

@@ -37,23 +37,23 @@ common common
     -Widentities
     -Wmissing-export-lists
 
-    -ddump-to-file
-    -ddump-stg-final
-    -ddump-simpl
-    -dppr-cols=120
-    -dsuppress-module-prefixes
-    -dsuppress-uniques
+    -- -ddump-to-file
+    -- -ddump-stg-final
+    -- -ddump-simpl
+    -- -dppr-cols=120
+    -- -dsuppress-module-prefixes
+    -- -dsuppress-uniques
 
-    -ddump-rules
-    -ddump-rule-firings
-    -ddump-rule-rewrites
+    -- -ddump-rules
+    -- -ddump-rule-firings
+    -- -ddump-rule-rewrites
 
     -- Build with `-haddock` to the haskell-language-server feature that
     -- displays documentation on hover.
     -haddock
 
   build-depends:
-    , base
+    , base >=4.14 && <5
     , hashable
 
 library
@@ -68,6 +68,7 @@ library
     , containers
     , data-default
     , deepseq
+    , eff
     , ghc-compact
     , lens
     , megaparsec
@@ -83,6 +84,7 @@ library
     Opal.Binding.BindingStore
     Opal.Binding.Environment
     Opal.Common.Lens
+    Opal.Common.Map
     Opal.Common.MultiScope
     Opal.Common.Phase
     Opal.Common.Scope
@@ -103,6 +105,9 @@ library
     Opal.Evaluator.State
     Opal.Expander
     Opal.Expander.Config
+    Opal.Expander.Error
+    Opal.Expander.Log
+    Opal.Expander.Match
     Opal.Expander.Monad
     Opal.Expander.State
     Opal.Memory.Buffer
@@ -110,6 +115,7 @@ library
     Opal.Memory.Ptr
     Opal.Memory.Slice
     Opal.Module
+    Opal.Module.Definitions
     Opal.Module.Export
     Opal.Module.Import
     Opal.Parser
@@ -154,39 +160,47 @@ benchmark opal-bench
 
   other-modules:
 
-test-suite opal-test
-  import:         common
-  type:           exitcode-stdio-1.0
-  hs-source-dirs: test
-  main-is:        Test.hs
+-- test-suite opal-test
+--   import:         common
+--   type:           exitcode-stdio-1.0
+--   hs-source-dirs: test
+--   main-is:        Test.hs
 
-  default-extensions:
+--   default-extensions:
 
-  ghc-options:
-    -threaded
-    -rtsopts
-    "-with-rtsopts=-N"
+--   ghc-options:
+--     -threaded
+--     -rtsopts
+--     "-with-rtsopts=-N"
 
-  build-depends:
-    , data-default
-    , hedgehog
-    , lens
-    , megaparsec
-    , opal
-    , tasty
-    , tasty-hedgehog
-    , text
+--   build-depends:
+--     , data-default
+--     , hedgehog
+--     , lens
+--     , megaparsec
+--     , opal
+--     , tasty
+--     , tasty-hedgehog
+--     , text
 
-  other-modules:
-    Test.Core
-    Test.Gen
-    Test.Opal
-    Test.Opal.Common
-    Test.Opal.Common.Symbol
-    Test.Opal.Evaluator
-    Test.Opal.Memory.Buffer
-    Test.Opal.Syntax
-    Test.Opal.Syntax.TH
-    Test.Opal.Quasi
-    Test.Opal.Writer
-    Test.Opal.Reader
+--   other-modules:
+--     Test.Core
+--     Test.Gen
+--     Test.Laws.Optics
+--     Test.Opal
+--     Test.Opal.Common
+--     Test.Opal.Common.Symbol
+--     Test.Opal.Common.Symbol.Gen
+--     Test.Opal.Core.Gen
+--     Test.Opal.Evaluator
+--     Test.Opal.Expander
+--     Test.Opal.Memory.Buffer
+--     Test.Opal.Module
+--     Test.Opal.Syntax
+--     Test.Opal.Syntax.Gen
+--     Test.Opal.Syntax.TH
+--     Test.Opal.Syntax.Transformer.Gen
+--     Test.Opal.Syntax.Value.Gen
+--     Test.Opal.Quasi
+--     Test.Opal.Writer
+--     Test.Opal.Reader

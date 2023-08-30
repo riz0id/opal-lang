@@ -54,7 +54,7 @@ data ImportSpec
     -- ^ TODO: docs
   | ImportSpecForSyntax {-# UNPACK #-} !Symbol
     -- ^ TODO: docs
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Show)
 
 -- | @since 1.0.0
 instance Display ImportSpec where
@@ -62,10 +62,6 @@ instance Display ImportSpec where
   display (ImportSpecForSyntax s) = Doc.parens ("for-syntax" <+> Doc.display s)
 
   displayList = Doc.hsep . map Doc.display
-
--- | @since 1.0.0
-instance Show ImportSpec where
-  show = Doc.pretty . Doc.display
 
 -- ImportSpec - Basic Operations -----------------------------------------------
 
@@ -87,7 +83,7 @@ data Import = Import
   , import_specs :: [ImportSpec]
     -- ^ TODO: docs
   }
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Show)
 
 $(defineLenses ''Import)
 

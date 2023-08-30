@@ -27,6 +27,7 @@ module Opal.Expander.Config
     -- ** Lenses
   , expandCurrentPhase
   , expandContext
+  , expandFilePath
   )
 where
 
@@ -100,6 +101,9 @@ data ExpandConfig = ExpandConfig
     -- ^ The current expansion phase.
   , expand_context       :: ExpansionContext
     -- ^ The current expansion context.
+  , expand_file_path     :: Maybe FilePath
+    -- ^ If given, 'expand_file_path' the path to the file the module is
+    -- currently expanding. Otherwise, the expander is running in a REPL.
   }
   deriving (Generic, Show)
 
@@ -117,4 +121,4 @@ instance Default ExpandConfig where
 --
 -- @since 1.0.0
 defaultExpandConfig :: ExpandConfig
-defaultExpandConfig = ExpandConfig def def
+defaultExpandConfig = ExpandConfig def def def

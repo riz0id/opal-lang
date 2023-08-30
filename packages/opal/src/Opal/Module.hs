@@ -20,8 +20,10 @@ module Opal.Module
   ( -- * Definitions
     Definitions (..)
     -- ** Optics
-  , definitionsVariables
-  , definitionsTransformers
+  , defnsVariables
+  , defnsTransformers
+  , defnsVariable
+  , defnsTransformer
     -- * Namespace
   , Namespace (..)
     -- ** Basic Operations
@@ -34,6 +36,8 @@ module Opal.Module
   , nsSubmoduleDeclarations
   , nsPhases
   , nsDefinitions
+  -- , nsBinding
+  , nsBinding
   , nsTransformer
   , nsVariable
     -- * Module
@@ -41,7 +45,6 @@ module Opal.Module
     -- ** Basic Operations
   , newModule
   , newCoreModule
-  , moduleBinding
   , moduleExportPhaseLevels
   , moduleImportPhaseLevels
   , moduleToSyntax
@@ -51,6 +54,7 @@ module Opal.Module
   , moduleExports
   , moduleNamespace
   , moduleBasePhase
+  , moduleBinding
   , moduleDefinitions
     -- * Import
   , Import (..)
@@ -60,9 +64,10 @@ module Opal.Module
 
 import Control.Applicative ((<|>))
 
-import Control.Lens (Lens', lens, over, view, (^.))
+import Control.Lens (Lens', lens, over, view, (.~), (^.), at)
 
 import Data.Default (Default (..))
+import Data.Function ((&))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -72,84 +77,18 @@ import GHC.Generics (Generic)
 import Opal.Common.Lens (defineLenses)
 import Opal.Common.Phase (Phase, PhaseShift)
 import Opal.Common.Symbol (Symbol)
+import Opal.Core (CoreForm (..), coreFormIdentifier, coreFormSymbol)
+import Opal.Module.Definitions
 import Opal.Module.Import
 import Opal.Module.Export
-import Opal.Writer (Display (..), Doc, (<+>))
+import Opal.Writer (Display (..), (<+>))
 import Opal.Writer qualified as Doc
-import Opal.Syntax.Definition (Definition, definitionToSyntax)
-import Opal.Syntax (Identifier, Syntax, syntaxScope)
+import Opal.Syntax.Definition (Definition)
+import Opal.Syntax (Identifier, Syntax, syntaxScope, Datum (..))
 import Opal.Syntax.TH (syntax)
 import Opal.Syntax.Transformer (Transformer (..))
 
 import Prelude hiding (id, mod)
-import Opal.Core (CoreForm (..), coreFormIdentifier)
-
--- Definitions -----------------------------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-data Definitions = Definitions
-  { definitions_transformers :: Map Identifier Transformer
-    -- ^ TODO: docs
-  , definitions_variables    :: Map Identifier Transformer
-    -- ^ TODO: docs
-  }
-  deriving (Eq, Generic, Ord)
-
-$(defineLenses ''Definitions)
-
--- | @since 1.0.0
-instance Default Definitions where
-  def = defaultDefinitions
-
--- | @since 1.0.0
-instance Display Definitions where
-  display (Definitions trans vals) =
-    (Doc.parens . mconcat)
-      [ Doc.string "definitions"
-      , (Doc.indent 2 . Doc.parens . mconcat)
-          [ "begin-for-syntax"
-          , Doc.indent 2 (Doc.vsep (displayDefns trans))
-          ]
-      , (Doc.indent 2 . Doc.parens . mconcat)
-          [ "begin"
-          , Doc.indent 2 (Doc.vsep (displayDefns vals))
-          ]
-      ]
-    where
-      displayDefns :: Map Identifier Transformer -> [Doc]
-      displayDefns = Map.foldrWithKey (\id t xs -> displayDefn id t : xs) mempty
-
-      displayDefn :: Identifier -> Transformer -> Doc
-      displayDefn id (TfmCore  form) =
-        (Doc.parens . Doc.hsep)
-          [ "define"
-          , display id
-          , Doc.parens ("#%built-in" <+> display form)
-          ]
-      displayDefn id (TfmDatum val) =
-        (Doc.parens . Doc.hsep)
-          [ "define"
-          , display id
-          , display val
-          ]
-
--- | @since 1.0.0
-instance Monoid Definitions where
-  mempty = defaultDefinitions
-
--- | @since 1.0.0
-instance Semigroup Definitions where
-  Definitions xs1 ys1 <> Definitions xs2 ys2 = Definitions (xs1 <> xs2) (ys1 <> ys2)
-
--- Definitions - Basic Operations ----------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-defaultDefinitions :: Definitions
-defaultDefinitions = Definitions Map.empty  Map.empty
 
 -- Namespace -------------------------------------------------------------------
 
@@ -167,7 +106,7 @@ data Namespace = Namespace
   , ns_phases                 :: Map Phase Definitions
     -- ^ TODO: docs
   }
-  deriving (Eq, Generic, Ord)
+  deriving (Eq, Generic, Ord, Show)
 
 -- | @since 1.0.0
 instance Default Namespace where
@@ -176,14 +115,11 @@ instance Default Namespace where
 -- | @since 1.0.0
 instance Display Namespace where
   display (Namespace ph _ _ defns) =
-    (Doc.parens . mconcat)
-      [ Doc.string "namespace" <+> display ph
+    (Doc.parens . Doc.hsep)
+      [ "namespace"
+      , display ph
       , display (mconcat (Map.elems defns))
       ]
-
--- | @since 1.0.0
-instance Show Namespace where
-  show = Doc.pretty . display
 
 -- Namespace - Basic Operations ------------------------------------------------
 
@@ -243,31 +179,27 @@ nsDefinitions ph = nsPhases . lens getter setter
     getter = fromMaybe def . Map.lookup ph
 
     setter :: Map Phase Definitions -> Definitions -> Map Phase Definitions
-    setter phs defns = Map.insertWith (flip (<>)) ph defns phs
+    setter phs defns = Map.insertWith ((<>)) ph defns phs
 
 -- | TODO: docs
 --
 -- @since 1.0.0
-nsTransformer :: Phase -> Identifier -> Lens' Namespace Transformer
-nsTransformer ph s = nsDefinitions ph . definitionsTransformers . lens getter setter
-  where
-    getter :: Map Identifier Transformer -> Transformer
-    getter = fromMaybe (error "unimplemented: #void") . Map.lookup s -- FIXME: implement #void datum
-
-    setter :: Map Identifier Transformer -> Transformer -> Map Identifier Transformer
-    setter vals val = Map.insert s val vals
+nsBinding :: Phase -> Symbol -> Lens' Namespace (Maybe Transformer)
+nsBinding ph id
+  | ph == def = nsVariable ph id
+  | otherwise = nsTransformer ph id
 
 -- | TODO: docs
 --
 -- @since 1.0.0
-nsVariable :: Phase -> Identifier -> Lens' Namespace Transformer
-nsVariable ph s = nsDefinitions ph . definitionsVariables . lens getter setter
-  where
-    getter :: Map Identifier Transformer -> Transformer
-    getter = fromMaybe (error "unimplemented: #void") . Map.lookup s -- FIXME: implement #void datum
+nsTransformer :: Phase -> Symbol -> Lens' Namespace (Maybe Transformer)
+nsTransformer ph id = nsDefinitions ph . defnsTransformers . at id
 
-    setter :: Map Identifier Transformer -> Transformer -> Map Identifier Transformer
-    setter vals val = Map.insert s val vals
+-- | TODO: docs
+--
+-- @since 1.0.0
+nsVariable :: Phase -> Symbol -> Lens' Namespace (Maybe Transformer)
+nsVariable ph id = nsDefinitions ph . defnsVariables . at id
 
 -- Module ----------------------------------------------------------------------
 
@@ -284,26 +216,21 @@ data Module = Module
   , module_namespace :: {-# UNPACK #-} !Namespace
     -- ^ The 'Namespace' attached to this module.
   }
-  deriving (Eq, Generic, Ord)
+  deriving (Eq, Generic, Ord, Show)
 
 $(defineLenses ''Module)
 
 -- | @since 1.0.0
 instance Display Module where
   display (Module name imports exports ns) =
-    Doc.hsep
-      [ Doc.string "(module"
-      , display name
+    (Doc.parens . Doc.hsep)
+      [ Doc.group ("module" <+> display name)
       , (Doc.indent 2 . Doc.vsep)
           [ display imports
           , display exports
-          , display ns <> Doc.char ')'
+          , display ns
           ]
       ]
-
--- | @since 1.0.0
-instance Show Module where
-  show = Doc.pretty . display
 
 -- Module - Basic Operations ---------------------------------------------------
 
@@ -339,18 +266,7 @@ newCoreModule ns =
     coreExportSpec = map (ExportSpecPhaseless . coreFormIdentifier) coreForms
 
     coreNamespace :: Namespace
-    coreNamespace = foldr (\form -> over (nsVariable def (coreFormIdentifier form)) (const (TfmCore form))) ns coreForms
-
--- | TODO: docs
---
--- @since 1.0.0
-moduleBinding :: Module -> Phase -> Identifier -> Transformer
-moduleBinding mod ph s
-  | ph == def = ns ^. nsVariable ph s
-  | otherwise = ns ^. nsTransformer ph s
-  where
-    ns :: Namespace
-    ns = mod ^. moduleNamespace
+    coreNamespace = foldr (\form -> over (nsVariable def (coreFormSymbol form)) (const (Just (TfmCore form)))) ns coreForms
 
 -- | TODO: docs
 --
@@ -369,13 +285,16 @@ moduleImportPhaseLevels = importPhaseLevels . view moduleImports
 -- @since 1.0.0
 moduleToSyntax :: Module -> Syntax
 moduleToSyntax (Module name imports exports ns) =
-  syntaxScope Nothing def [syntax|
-    (module ?name:symbol
+  [syntax|
+    (?moduleId ?name:symbol
       ?importStx
       ?exportStx
       ?exprStxs ...)
   |]
   where
+    moduleId :: Syntax
+    moduleId = syntaxScope Nothing def [syntax| module |]
+
     importStx :: Syntax
     importStx = importToSyntax imports
 
@@ -383,7 +302,7 @@ moduleToSyntax (Module name imports exports ns) =
     exportStx = exportToSyntax exports
 
     exprStxs :: [Syntax]
-    exprStxs = map (definitionToSyntax . snd) (ns ^. undefined)
+    exprStxs = definitionsToSyntaxes (ns ^. nsDefinitions (ns ^. nsBasePhase))
 
 -- Module - Optics -------------------------------------------------------------
 
@@ -393,7 +312,12 @@ moduleToSyntax (Module name imports exports ns) =
 -- @since 1.0.0
 moduleBasePhase :: Lens' Module Phase
 moduleBasePhase = moduleNamespace . nsBasePhase
-{-# INLINE moduleBasePhase #-}
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+moduleBinding :: Phase -> Symbol -> Lens' Module (Maybe Transformer)
+moduleBinding ph id = moduleNamespace . nsBinding ph id
 
 -- | Composite lens focusing on the @('moduleNamespace' . 'namespaceDefinitions')@
 -- field of a 'Module'.
@@ -401,4 +325,3 @@ moduleBasePhase = moduleNamespace . nsBasePhase
 -- @since 1.0.0
 moduleDefinitions :: Lens' Module [(PhaseShift, Definition)]
 moduleDefinitions = moduleNamespace . undefined
-{-# INLINE moduleDefinitions #-}

@@ -36,7 +36,7 @@ import Opal.Common.Lens (defineLenses)
 import Data.Default (Default (..))
 
 import Opal.Common.Phase (PhaseShift)
-import Opal.Syntax (Identifier, Syntax)
+import Opal.Syntax (Identifier, Syntax, syntaxScope)
 import Opal.Syntax.TH (syntax)
 import Opal.Writer (Display (..), (<+>))
 import Opal.Writer qualified as Doc
@@ -53,7 +53,7 @@ data ExportSpec
     -- ^ TODO: docs
   | ExportSpecForSyntax {-# UNPACK #-} !Identifier
     -- ^ TODO: docs
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Show)
 
 -- | @since 1.0.0
 instance Display ExportSpec where
@@ -61,10 +61,6 @@ instance Display ExportSpec where
   display (ExportSpecForSyntax s) = Doc.parens ("for-syntax" <+> Doc.display s)
 
   displayList = Doc.hsep . map Doc.display
-
--- | @since 1.0.0
-instance Show ExportSpec where
-  show = Doc.pretty . Doc.display
 
 -- ExportSpec - Basic Operations -----------------------------------------------
 
@@ -86,7 +82,7 @@ data Export = Export
   , export_specs :: [ExportSpec]
     -- ^ TODO: docs
   }
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Show)
 
 $(defineLenses ''Export)
 
@@ -124,12 +120,14 @@ exportPhaseLevels (Export sh spec) = foldr run [] spec
     run (ExportSpecPhaseless s) xs = (sh, s) : xs
     run (ExportSpecForSyntax s) xs = (1 + sh, s) : xs
 
-
 -- | TODO: docs
 --
 -- @since 1.0.0
 exportToSyntax :: Export -> Syntax
-exportToSyntax (Export _ spec) = [syntax| (export ?exportSpecStxs ...) |]
+exportToSyntax (Export _ spec) =
+  let coreId :: Syntax
+      coreId = syntaxScope Nothing def [syntax| export |]
+   in [syntax| (?coreId ?exportSpecStxs ...) |]
   where
     exportSpecStxs :: [Syntax]
     exportSpecStxs = map exportSpecToSyntax spec

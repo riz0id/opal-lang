@@ -15,7 +15,6 @@
 module Opal.Core
   ( -- * CoreForm
     CoreForm (..)
-
     -- ** Basic Operations
   , coreFormIdentifier
   , coreFormSymbol
@@ -40,10 +39,10 @@ import Opal.Syntax.ScopeInfo qualified as ScopeInfo
 data CoreForm
   = CoreApp
     -- ^ The enumeration for the "#%app" core syntactic form.
-  | CoreDatum
-    -- ^ The enumeration for the "#%datum" core syntactic form.
   | CoreBegin
     -- ^ The enumeration for the "begin" core syntactic form.
+  | CoreBeginSyntax
+    -- ^ The enumeration for the "begin-syntax" core syntactic form.
   | CoreDefine
     -- ^ The enumeration for the "define" core syntactic form.
   | CoreDefineSyntax
@@ -102,8 +101,8 @@ coreFormSymbol = stringToSymbol . coreFormString
 -- @since 1.0.0
 coreFormString :: CoreForm -> String
 coreFormString CoreApp          = "#%app"
-coreFormString CoreDatum        = "#%datum"
 coreFormString CoreBegin        = "begin"
+coreFormString CoreBeginSyntax  = "begin"
 coreFormString CoreDefine       = "define"
 coreFormString CoreDefineSyntax = "define-syntax"
 coreFormString CoreLambda       = "lambda"

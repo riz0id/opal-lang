@@ -24,8 +24,6 @@ module Opal.Expander.Monad
     Expand (..)
     -- ** Basic Operations
   , runExpand
-  , logExpand
-  , resolveId
   , lookupEnvironment
   , withTopLevelContext
   , withModuleContext
@@ -34,14 +32,15 @@ module Opal.Expander.Monad
   , withExpressionContext
     -- * ExpandConfig
   , ExpandConfig (..)
-    -- ** Basic Operations
-  , defaultExpandConfig
     -- ** Lenses
   , expandEnvironment
   , expandCurrentPhase
   , expandContext
+  , expandFilePath
     -- * ExpandError
   , ExpandError (..)
+    -- ** Basic Operations
+  , throwBadSyntax
     -- * ExpandState
   , ExpandState (..)
     -- ** Basic Operations
@@ -58,10 +57,13 @@ module Opal.Expander.Monad
   , expansionContextString
     -- * ExpansionLog
   , ExpansionLog (..)
+    -- ** Basic Operations
+  , writeLog
+  , writeLogs
   )
 where
 
-import Control.Lens (set, use, view, (^.))
+import Control.Lens (set, use, view)
 
 import Control.Monad.Except (ExceptT, MonadError (..), runExceptT)
 import Control.Monad.IO.Class (MonadIO (..))
@@ -71,28 +73,34 @@ import Control.Monad.State.Strict (MonadState (..), StateT(..))
 import Control.Monad.Writer (MonadWriter (..), WriterT (..))
 
 import Data.Function ((&))
-import Data.Text (Text)
 
 import GHC.Exts (RealWorld)
 
 import Opal.Binding.Environment qualified as Environment
 import Opal.Common.Scope (MonadScope (..))
-import Opal.Common.Symbol (MonadGenSym (..), Symbol)
-import Opal.Error
-  ( Error (..)
-  , ErrorAmbiguous
-  , ErrorNotBound (..)
-  , ErrorNotInScope
-  , ErrorBadSyntax
-  , ErrorNoModule
-  )
-import Opal.Error.ErrorCode.TH (makeErrorCode)
-import Opal.Reader (ReaderError)
-import Opal.Resolve (ResolveError (..), resolve)
+import Opal.Common.Symbol (MonadGenSym (..))
+import Opal.Error (ErrorNotBound (..))
+import Opal.Resolve (ResolveError (..), resolve, MonadResolve, resolveId)
 import Opal.Syntax
 import Opal.Syntax.Transformer (Transformer(..))
-import Opal.Writer (Display (..), Doc, (<+>))
-import Opal.Writer qualified as Doc
+import Opal.Expander.Error
+  ( ExpandError (..)
+  , throwBadSyntax
+  )
+import Opal.Expander.Config
+  ( ExpandConfig (..)
+  , ExpansionContext (..)
+  , expandCurrentPhase
+  , expandContext
+  , expandFilePath
+  , expansionContextString
+  , expansionContextSymbol
+  )
+import Opal.Expander.Log
+  ( ExpansionLog (..)
+  , writeLog
+  , writeLogs
+  )
 import Opal.Expander.State
   ( ExpandState(..)
   , defaultExpandState
@@ -102,19 +110,9 @@ import Opal.Expander.State
   , expandNamespace
   , expandUsageScopes
   )
-import Opal.Expander.Config
-  ( ExpandConfig (..)
-  , ExpansionContext (..)
-  , defaultExpandConfig
-  , expandCurrentPhase
-  , expandContext
-  , expansionContextString
-  , expansionContextSymbol
-  )
 
 import Prelude hiding (id)
 
-import Text.Megaparsec (ParseErrorBundle, errorBundlePretty)
 
 -- Expand -----------------------------------------------------------------------
 
@@ -137,6 +135,19 @@ newtype Expand a = Expand
 -- | @since 1.0.0
 instance MonadGenSym Expand where
   newGenSym = liftIO newGenSym
+
+-- | @since 1.0.0
+instance MonadResolve Expand where
+  resolve ph id = do
+    store <- use expandBindingStore
+    writeLog (LogResolveId id)
+    case resolveId ph id store of
+      Left  e -> throwError (resolveToExpandError e)
+      Right s -> pure s
+    where
+      resolveToExpandError :: ResolveError -> ExpandError
+      resolveToExpandError (ResolveAmbiguous  e) = ExpandAmbiguous e
+      resolveToExpandError (ResolveNotInScope e) = ExpandNotInScope e
 
 -- | @since 1.0.0
 instance MonadScope Expand where
@@ -169,35 +180,13 @@ runExpand c s0 expand =
 -- | TODO: docs
 --
 -- @since 1.0.0
-logExpand :: ExpansionLog -> Expand ()
-logExpand x = tell [x]
-
--- | TODO: docs
---
--- @since 1.0.0
-resolveId :: Identifier -> Expand Symbol
-resolveId id = do
-  phase <- view expandCurrentPhase
-  store <- use expandBindingStore
-  logExpand (LogResolveId id)
-  liftIO (print store)
-  case resolve phase id store of
-    Left  exn -> throwError (resolveToExpandError exn)
-    Right s   -> pure s
-  where
-    resolveToExpandError :: ResolveError -> ExpandError
-    resolveToExpandError (ResolveErrorAmbiguous exn)  = ExpandAmbiguous exn
-    resolveToExpandError (ResolveErrorNotInScope exn) = ExpandNotInScope exn
-
--- | TODO: docs
---
--- @since 1.0.0
 lookupEnvironment :: Identifier -> Expand Transformer
 lookupEnvironment id = do
-  b   <- resolveId id
-  env <- use expandEnvironment
-  case Environment.lookup b env of
-    Nothing -> throwError (ExpandNotBound (ErrorNotBound id b))
+  ph   <- view expandCurrentPhase
+  bind <- resolve ph id
+  env  <- use expandEnvironment
+  case Environment.lookup bind env of
+    Nothing -> throwError (ExpandNotBound (ErrorNotBound id bind))
     Just x  -> pure x
 
 -- | TODO: docs
@@ -229,120 +218,3 @@ withDefinitionContext = local (set expandContext ContextDefinition)
 -- @since 1.0.0
 withExpressionContext :: Expand a -> Expand a
 withExpressionContext = local (set expandContext ContextExpression)
-
--- ExpandError -----------------------------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-data ExpandError
-  = ExpandAmbiguous {-# UNPACK #-} !ErrorAmbiguous
-    -- ^ TODO: docs
-  | ExpandNotInScope {-# UNPACK #-} !ErrorNotInScope
-    -- ^ TODO: docs
-  | ExpandNotBound {-# UNPACK #-} !ErrorNotBound
-    -- ^ TODO: docs
-  | ErrorBadContext Syntax [ExpansionContext] ExpansionContext
-    -- ^ TODO: docs
-  | ExpandBadSyntax {-# UNPACK #-} !ErrorBadSyntax
-    -- ^ TODO: docs
-  | ExpandReaderError (ParseErrorBundle Text ReaderError)
-    -- ^ TODO: docs
-  | ExpandNoModule {-# UNPACK #-} !ErrorNoModule
-    -- ^ TODO: docs
-  deriving (Show)
-
--- | @since 1.0.0
-instance Display ExpandError where
-  display (ExpandAmbiguous x)  = display x
-  display (ExpandNotInScope x) = display x
-  display (ExpandNotBound x)   = display x
-  display (ExpandBadSyntax x)  = display x
-  display (ExpandNoModule x)   = display x
-  display exn = case exn of
-    ErrorBadContext stx ctxs ctx ->
-      docExpandError (stx ^. syntaxInfo) "invalid expansion context"
-        [ Doc.vsep
-            [ "expanding the syntax object:"
-            , Doc.line <> display stx
-            ]
-        , Doc.hsep
-            [ "can only be expanded in a"
-            , display ctxs
-            , "context"
-            ]
-        , Doc.hsep
-            [ "but was expanded in a"
-            , display ctx
-            , "context"
-            ]
-        ]
-    ExpandReaderError x -> Doc.string (errorBundlePretty x)
-    where
-      docExpandError :: SyntaxInfo -> Doc -> [Doc] -> Doc
-      docExpandError info msg notes =
-        Doc.hsep
-          [ maybe "<unknown source location>" display (info ^. stxInfoSource) <> Doc.char ':'
-          , Doc.string "error:"
-          , Doc.char '[' <> display (errorCode exn) <> Doc.char ']'
-          , Doc.nest 2 (Doc.line <> msg <> Doc.nest 2 (Doc.line <> Doc.nest 2 (Doc.vsep (map (Doc.char '*' <+>) notes))))
-          ]
-
--- | @since 1.0.0
-instance Error ExpandError where
-  errorCode (ExpandAmbiguous x)  = errorCode x
-  errorCode (ExpandNotInScope x) = errorCode x
-  errorCode (ExpandNotBound x)   = errorCode x
-  errorCode (ExpandBadSyntax x)  = errorCode x
-  errorCode (ExpandNoModule x)   = errorCode x
-  errorCode ErrorBadContext   {} = $(makeErrorCode "OPAL-10005" 'ErrorBadContext)
-  errorCode ExpandReaderError {} = $(makeErrorCode "OPAL-10006" 'ExpandReaderError)
-
--- ExpansionLog ----------------------------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-data ExpansionLog
-  = LogEnterEval SExp
-    -- ^ TODO: docs
-  | LogEnterMacro Syntax
-    -- ^ TODO: docs
-  | LogEnterMacroExpand Syntax
-    -- ^ TODO: docs
-  | LogEnterParse Syntax
-    -- ^ TODO: docs
-  | LogExitEval Datum
-    -- ^ TODO: docs
-  | LogExitMacro Syntax
-    -- ^ TODO: docs
-  | LogExitMacroExpand Syntax
-    -- ^ TODO: docs
-  | LogExitParse SExp
-    -- ^ TODO: docs
-  | LogParse Syntax
-    -- ^ TODO: docs
-  | LogResolveId Identifier
-    -- ^ TODO: docs
-  | LogVariable Identifier
-    -- ^ TODO: docs
-  | LogVisitSyntax Syntax
-    -- ^ TODO: docs
-  deriving (Show)
-
--- | @since 1.0.0
-instance Display ExpansionLog where
-  display (LogEnterEval stx)        = "enter-eval" <+> display stx
-  display (LogEnterMacro stx)       = "enter-macro" <+> display stx
-  display (LogEnterMacroExpand stx) = "enter-macro-expand" <+> display stx
-  display (LogEnterParse stx)       = "enter-parse" <+> display stx
-  display (LogExitEval stx)         = "exit-eval" <+> display stx
-  display (LogExitMacro stx)        = "exit-macro" <+> display stx
-  display (LogExitMacroExpand stx)  = "exit-macro-expand" <+> display stx
-  display (LogExitParse stx)        = "exit-parse" <+> display stx
-  display (LogParse stx)            = "parse" <+> display stx
-  display (LogResolveId id)         = "resolve-id" <+> display id
-  display (LogVariable id)          = "variable" <+> display id
-  display (LogVisitSyntax stx)      = "visit-syntax" <+> display stx
-
-  displayList = Doc.vsep . map display

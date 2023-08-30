@@ -1,10 +1,14 @@
 
 with import nix/pkgs.nix;
 
-pkgs.pkgs.haskell.packages.ghc962.opal.env.overrideAttrs (self: {
-  buildInputs = self.buildInputs ++ (with pkgs; [
-    cabal-install
-    haskell.compiler.ghc962
-    haskell.packages.ghc962.haskell-language-server
-  ]);
-})
+mkShell {
+  buildInputs = [
+    haskellPackages.eff
+  ];
+}
+# pkgs.haskellPackages.opal.env.overrideAttrs (self: {
+#   buildInputs = self.buildInputs ++ (with pkgs; [
+#     # haskellPackages.ghc962
+#     # haskellPackages.haskell-language-server
+#   ]);
+# })

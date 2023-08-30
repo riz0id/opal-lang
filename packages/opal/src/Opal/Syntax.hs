@@ -25,7 +25,7 @@ module Opal.Syntax
   , valueF32
   , valueI32
     -- * Datum
-  , Datum (DatumB, DatumC, DatumS, DatumF32, DatumI32, ..)
+  , Datum (DatumB, DatumC, DatumS, DatumF32, DatumI32, DatumVoid, ..)
     -- ** Optics
   , datumValue
   , datumBool
@@ -51,12 +51,13 @@ module Opal.Syntax
   , identifierToSyntax
     -- ** Scope Operations
   , identifierScope
+  , identifierPrune
     -- ** Optics
   , idtSymbol
   , idtInfo
   , idtScopes
     -- * Syntax
-  , Syntax (SyntaxB, SyntaxC, SyntaxS, SyntaxF32, SyntaxI32, ..)
+  , Syntax (SyntaxB, SyntaxC, SyntaxS, SyntaxF32, SyntaxI32, SyntaxId, ..)
     -- ** Basic Operations
   , datumToSyntax
   , syntaxToDatum
@@ -135,35 +136,41 @@ data Datum
     -- ^ The 'Datum' representation of a syntax object.
   deriving (Eq, Generic, Lift, Ord)
 
--- | Pattern synonym for @('DatumVal' (ValueB _) _)@.
+-- | Pattern synonym for @('DatumVal' (ValueB _))@.
 --
 -- @since 1.0.0
 pattern DatumB :: Bool -> Datum
 pattern DatumB x = DatumVal (ValueB x)
 
--- | Pattern synonym for @('DatumVal' (ValueC _) _)@.
+-- | Pattern synonym for @('DatumVal' (ValueC _))@.
 --
 -- @since 1.0.0
 pattern DatumC :: Char -> Datum
 pattern DatumC x = DatumVal (ValueC x)
 
--- | Pattern synonym for @('DatumVal' (ValueS _) _)@.
+-- | Pattern synonym for @('DatumVal' (ValueS _))@.
 --
 -- @since 1.0.0
 pattern DatumS :: Symbol -> Datum
 pattern DatumS x = DatumVal (ValueS x)
 
--- | Pattern synonym for @('DatumVal' (ValueF32 _) _)@.
+-- | Pattern synonym for @('DatumVal' (ValueF32 _))@.
 --
 -- @since 1.0.0
 pattern DatumF32 :: Float -> Datum
 pattern DatumF32 x = DatumVal (ValueF32 x)
 
--- | Pattern synonym for @('DatumVal' (ValueI32 _) _)@.
+-- | Pattern synonym for @('DatumVal' (ValueI32 _))@.
 --
 -- @since 1.0.0
 pattern DatumI32 :: Int32 -> Datum
 pattern DatumI32 x = DatumVal (ValueI32 x)
+
+-- | Pattern synonym for @('DatumVal' ValueVoid)@.
+--
+-- @since 1.0.0
+pattern DatumVoid :: Datum
+pattern DatumVoid = DatumVal ValueVoid
 
 {-# COMPLETE
   DatumB, DatumC, DatumS, DatumF32, DatumI32, DatumLam, DatumList, DatumStx
@@ -371,6 +378,12 @@ identifierToSyntax (Identifier s info) = SyntaxS s info
 identifierScope :: Maybe Phase -> Scope -> Identifier -> Identifier
 identifierScope ph sc = over idtScopes (ScopeInfo.insert ph sc)
 
+-- | TODO: docs
+--
+-- @since 1.0.0
+identifierPrune :: Phase -> ScopeSet -> Identifier -> Identifier
+identifierPrune ph scps = over idtScopes (ScopeInfo.deletes ph scps)
+
 -- Identifier - Optics ---------------------------------------------------------
 
 -- | Lens focusing on the 'idt_symbol' field of 'Identifier'.
@@ -433,6 +446,13 @@ pattern SyntaxF32 x info = SyntaxVal (ValueF32 x) info
 -- @since 1.0.0
 pattern SyntaxI32 :: Int32 -> SyntaxInfo -> Syntax
 pattern SyntaxI32 x info = SyntaxVal (ValueI32 x) info
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+pattern SyntaxId :: Identifier -> Syntax
+pattern SyntaxId id <- (preview syntaxId -> Just id)
+  where SyntaxId id = identifierToSyntax id
 
 {-# COMPLETE SyntaxB, SyntaxC, SyntaxS, SyntaxF32, SyntaxI32, SyntaxLam, SyntaxList #-}
 

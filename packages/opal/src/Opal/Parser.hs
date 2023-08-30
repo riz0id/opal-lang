@@ -34,7 +34,7 @@ module Opal.Parser
   )
 where
 
-import Control.Lens (view, (^.))
+import Control.Lens (view)
 
 import Control.Monad.Except (MonadError(..))
 
@@ -42,11 +42,13 @@ import Data.List.NonEmpty (NonEmpty (..))
 
 import Opal.Common.Symbol
 import Opal.Parser.Monad
-import Opal.Resolve (ResolveError (..), resolve)
+import Opal.Resolve (MonadResolve (..))
 import Opal.Syntax
 import Opal.Syntax.TH (syntax)
 import Opal.Core (CoreForm(..))
 import Opal.Error (ErrorBadSyntax(..))
+
+import Prelude hiding (id)
 
 -- Parse - Basic Operations ----------------------------------------------------
 
@@ -101,11 +103,6 @@ parseLambda args body = do
 --
 -- @since 1.0.0
 parseIdentifier :: Identifier -> Parse Symbol
-parseIdentifier idt = do
-  phase <- view parseCurrentPhase
-  store <- view parseBindingStore
-  case resolve phase idt store of
-    Left  exn     -> case exn of
-      ResolveErrorAmbiguous  x -> throwError (ParseAmbiguous x)
-      ResolveErrorNotInScope _ -> pure (idt ^. idtSymbol)
-    Right gensym  -> pure gensym
+parseIdentifier id = do
+  ph <- view parseCurrentPhase
+  resolve ph id
