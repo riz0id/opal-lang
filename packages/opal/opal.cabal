@@ -77,6 +77,7 @@ library
     , stm
     , template-haskell
     , text
+    , unicode
     , unordered-containers
 
   exposed-modules:
@@ -94,7 +95,6 @@ library
     Opal.Common.Symbol
     Opal.Common.SymbolStore
     Opal.Common.TH
-    Opal.Common.Unicode
     Opal.Core
     Opal.Error
     Opal.Error.ErrorCode

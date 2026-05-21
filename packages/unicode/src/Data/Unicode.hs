@@ -29,9 +29,13 @@ module Data.Unicode
     -- * Pointer-arena I\/O
     readUtf8OffPtr,
     writeUtf8OffPtr,
+    copyStringUtf8ToPtr,
     -- * Width queries
     sizeofLeaderUtf8,
     sizeofCharUtf8,
+    sizeofStringUtf8,
+    sizeofUtf8OffPtr,
+    sizeofUtf8OffForeignPtr,
     -- * Predicates
     isContinuation,
   )
@@ -41,6 +45,8 @@ import Data.Bits qualified as Bits
 import Data.Char qualified as Char
 import Data.Primitive.Ptr (readOffPtr)
 import Data.Unicode.TH (staticListE)
+
+import Foreign.ForeignPtr (ForeignPtr, withForeignPtr)
 
 import GHC.Exts (Char (..), Char#, Int (..), Word#, Word8#, Int#)
 import GHC.Exts qualified as GHC
@@ -324,10 +330,67 @@ sizeofCharUtf8 :: Char -> Int
 sizeofCharUtf8 (C# x#) = I# (sizeofCharUtf8# x#)
 {-# INLINE sizeofCharUtf8 #-}
 
--- TODO: docs
+-- | Unboxed primop behind 'sizeofCharUtf8'. Sums three @\>=@
+-- comparisons to pick a width in @1..4@.
 sizeofCharUtf8# :: Char# -> Int#
 sizeofCharUtf8# x# =
   let !cmp0# = GHC.geChar# x# '\x80'#
       !cmp1# = GHC.geChar# x# '\x800'#
       !cmp2# = GHC.geChar# x# '\x10000'#
    in cmp0# GHC.+# cmp1# GHC.+# cmp2# GHC.+# 1#
+
+-- | \(O(n)\). Encode a 'String' as UTF-8 starting at @ptr@. Caller
+-- must guarantee that @ptr@ has at least 'sizeofStringUtf8' bytes
+-- of writable memory available.
+--
+-- @since 1.0.0
+copyStringUtf8ToPtr :: Ptr Word8 -> String -> IO ()
+copyStringUtf8ToPtr = go
+  where
+    go _   []       = pure ()
+    go ptr (x : xs) = do
+      writeUtf8OffPtr ptr (sizeofCharUtf8 x) x >>= \case
+        Just ptr' -> go ptr' xs
+        Nothing   -> error "copyStringUtf8ToPtr: arity mismatch (impossible)"
+
+-- | \(O(n)\). The number of bytes required to UTF-8 encode the
+-- given 'String'.
+--
+-- @since 1.0.0
+sizeofStringUtf8 :: String -> Int
+sizeofStringUtf8 = foldl (\n c -> n + sizeofCharUtf8 c) 0
+
+-- | \(O(n)\). Count the UTF-8 characters in a @len@-byte region
+-- starting at @ptr@. The region must contain well-formed UTF-8;
+-- malformed sequences cause the count to stop at the first
+-- unparseable byte (returning the number of characters successfully
+-- decoded so far).
+--
+-- @since 1.0.0
+sizeofUtf8OffPtr ::
+  -- | Pointer to a UTF-8 encoded string.
+  Ptr Word8 ->
+  -- | The size of the UTF-8 string in bytes.
+  Int ->
+  -- | Returns size of the UTF-8 string in characters.
+  IO Int
+sizeofUtf8OffPtr src len = do
+  let end :: Ptr Word8
+      end = plusPtr src len
+      run :: Int -> Ptr Word8 -> IO Int
+      run !n ptr
+        | ptr < end = do
+          leader <- readWord8OffPtr ptr 0
+          let i = sizeofLeaderUtf8 leader
+          if i == 0
+            then pure n  -- malformed leader; stop counting
+            else run (n + 1) (ptr `plusPtr` i)
+        | otherwise = pure n
+  run 0 src
+
+-- | \(O(n)\). 'sizeofUtf8OffPtr' but for a 'ForeignPtr'-anchored
+-- region.
+--
+-- @since 1.0.0
+sizeofUtf8OffForeignPtr :: ForeignPtr Word8 -> Int -> IO Int
+sizeofUtf8OffForeignPtr src len = withForeignPtr src (`sizeofUtf8OffPtr` len)

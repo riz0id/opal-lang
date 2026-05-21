@@ -86,7 +86,7 @@ import Opal.Memory.ForeignPtr
   , plusForeignPtr
   )
 import Opal.Memory.Ptr (copyListOffPtr, foldlWord8OffPtr, foldrWord8OffPtr)
-import Opal.Common.Unicode (readUtf8OffPtr, writeUtf8OffPtr)
+import Data.Unicode (readUtf8OffPtr, writeUtf8OffPtr)
 
 import System.IO
   ( Handle
@@ -288,8 +288,10 @@ foldlBufferUtf8 c e (Buffer fp len) = do
     let run :: Ptr Word8 -> a -> IO a
         run ptr acc
           | ptr < end = do
-              (x, n) <- readUtf8OffPtr ptr
-              run (ptr `plusPtr` n) (acc `c` x)
+              let remaining = end `minusPtr` ptr
+              readUtf8OffPtr ptr remaining >>= \case
+                Just (x, n) -> run (ptr `plusPtr` n) (acc `c` x)
+                Nothing     -> pure acc  -- truncated or malformed: stop
           | otherwise = pure acc
 
     run begin e
@@ -400,10 +402,10 @@ readWord8OffBuffer buffer i = withBufferContents buffer (`readWord8OffPtr` i)
 -- | TODO: docs
 --
 -- @since 1.0.0
-readUtf8OffBuffer :: Buffer -> Int -> IO (Char, Int)
+readUtf8OffBuffer :: Buffer -> Int -> IO (Maybe (Char, Int))
 readUtf8OffBuffer buffer i =
   withBufferContents buffer \ptr ->
-    readUtf8OffPtr (ptr `plusPtr` i)
+    readUtf8OffPtr (ptr `plusPtr` i) (sizeofBuffer buffer - i)
 
 -- Buffer - Write Operations ---------------------------------------------------
 
@@ -418,9 +420,10 @@ writeWord8OffBuffer buffer i x = withBufferContents buffer \ptr -> writeWord8Off
 -- the specified offset. Offset given in bytes.
 --
 -- @since 1.0.0
-writeUtf8OffBuffer :: Buffer -> Int -> Char -> IO Int
+writeUtf8OffBuffer :: Buffer -> Int -> Char -> IO (Maybe Int)
 writeUtf8OffBuffer buffer i x =
   withBufferContents buffer \ptr -> do
-    ptr' <- writeUtf8OffPtr (ptr `plusPtr` i) x
-    pure (ptr' `minusPtr` ptr - i)
+    writeUtf8OffPtr (ptr `plusPtr` i) (sizeofBuffer buffer - i) x >>= \case
+      Just ptr' -> pure (Just (ptr' `minusPtr` ptr - i))
+      Nothing   -> pure Nothing
 

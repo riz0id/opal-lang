@@ -36,7 +36,7 @@ import Data.Word (Word8)
 
 import GHC.Exts qualified as GHC
 
-import Opal.Common.Unicode (readUtf8OffPtr)
+import Data.Unicode (readUtf8OffPtr)
 import Opal.Memory.Buffer (Buffer, sizeofBuffer, withBufferContents)
 import Opal.Memory.Ptr (Ptr, isNullPtr, minusPtr, nullPtr, plusPtr)
 
@@ -82,11 +82,13 @@ sliceBuffer buffer k = withBufferContents buffer (k . (`sliceFromPtr` sizeofBuff
 -- @since 1.0.0
 foldlSliceUtf8 :: forall a. (a -> Char -> a) -> a -> Slice -> IO a
 foldlSliceUtf8 cons nil (Slice begin end) = do
-  let run :: Ptr Word8 -> a -> IO a 
-      run ptr acc 
-        | ptr < end = do 
-            (c, n) <- readUtf8OffPtr ptr 
-            run (ptr `plusPtr` n) (acc `cons` c)
+  let run :: Ptr Word8 -> a -> IO a
+      run ptr acc
+        | ptr < end = do
+            let remaining = end `minusPtr` ptr
+            readUtf8OffPtr ptr remaining >>= \case
+              Just (c, n) -> run (ptr `plusPtr` n) (acc `cons` c)
+              Nothing     -> pure acc  -- truncated or malformed: stop
         | otherwise = pure acc
 
   run begin nil

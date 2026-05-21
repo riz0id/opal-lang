@@ -67,7 +67,7 @@ import Language.Haskell.TH (Exp (..), Lit (..), Pat (..))
 import Language.Haskell.TH qualified as TH
 import Language.Haskell.TH.Syntax (Lift (..))
 
-import Opal.Common.Unicode
+import Data.Unicode
   ( readUtf8OffPtr
   , sizeofStringUtf8
   , copyStringUtf8ToPtr
@@ -239,11 +239,16 @@ dropSymbol n s =
         then Nothing
         else Just (stringToSymbol substr)
 
--- | Obtain the first character of a 'Symbol'.
+-- | Obtain the first character of a 'Symbol'. Assumes the symbol's
+-- bytes are well-formed UTF-8 (the reader enforces this); malformed
+-- input causes a runtime error.
 --
 -- @since 1.0.0
 symbolHead :: Symbol -> Char
-symbolHead (Symbol fp _) = fst (unsafeDupablePerformIO (withForeignPtr fp readUtf8OffPtr))
+symbolHead (Symbol fp len) = unsafeDupablePerformIO $
+  withForeignPtr fp \ptr -> readUtf8OffPtr ptr len >>= \case
+    Just (c, _) -> pure c
+    Nothing     -> error "symbolHead: malformed UTF-8"
 
 -- | Extract the tail of the 'Symbol'.
 --
@@ -251,8 +256,9 @@ symbolHead (Symbol fp _) = fst (unsafeDupablePerformIO (withForeignPtr fp readUt
 symbolTail :: Symbol -> Maybe Symbol
 symbolTail (Symbol fp len)
   | 1 < len   = unsafeDupablePerformIO do
-    (_, n) <- withForeignPtr fp readUtf8OffPtr
-    pure (Just (Symbol (fp `plusForeignPtr` n) (len - n)))
+    withForeignPtr fp \ptr -> readUtf8OffPtr ptr len >>= \case
+      Just (_, n) -> pure (Just (Symbol (fp `plusForeignPtr` n) (len - n)))
+      Nothing     -> pure Nothing
   | otherwise = Nothing
 
 -- Symbol - Comparisons --------------------------------------------------------
@@ -290,8 +296,10 @@ foldl cons nil (Symbol fp len) =
     let run :: a -> Ptr Word8 -> IO a
         run x ptr
           | ptr < end = do
-            (c, n) <- readUtf8OffPtr ptr
-            run (cons x c) (plusPtr ptr n)
+            let remaining = end `minusPtr` ptr
+            readUtf8OffPtr ptr remaining >>= \case
+              Just (c, n) -> run (cons x c) (plusPtr ptr n)
+              Nothing     -> pure x  -- truncated or malformed: stop
           | otherwise = pure x
 
     run nil src
@@ -348,10 +356,12 @@ splitSymbol match s@(Symbol fp len) =
     let run :: Ptr Word8 -> IO (Maybe (Ptr Word8))
         run ptr
           | ptr <= end = do
-            (c, n) <- readUtf8OffPtr ptr
-            if match c
-              then pure (Just ptr)
-              else run (ptr `plusPtr` n)
+            let remaining = end `minusPtr` ptr
+            readUtf8OffPtr ptr remaining >>= \case
+              Just (c, n)
+                | match c   -> pure (Just ptr)
+                | otherwise -> run (ptr `plusPtr` n)
+              Nothing       -> pure Nothing
           | otherwise  =
             pure Nothing
 
