@@ -41,8 +41,9 @@ data CoreForm
     -- ^ The enumeration for the "#%app" core syntactic form.
   | CoreBegin
     -- ^ The enumeration for the "begin" core syntactic form.
-  | CoreBeginSyntax
-    -- ^ The enumeration for the "begin-syntax" core syntactic form.
+  | CoreBeginForSyntax
+    -- ^ The enumeration for the "begin-for-syntax" core syntactic form
+    -- (Racket's @begin-for-syntax@ — evaluates its body one phase up).
   | CoreDefine
     -- ^ The enumeration for the "define" core syntactic form.
   | CoreDefineSyntax
@@ -102,7 +103,7 @@ coreFormSymbol = stringToSymbol . coreFormString
 coreFormString :: CoreForm -> String
 coreFormString CoreApp          = "#%app"
 coreFormString CoreBegin        = "begin"
-coreFormString CoreBeginSyntax  = "begin"
+coreFormString CoreBeginForSyntax = "begin-for-syntax"
 coreFormString CoreDefine       = "define"
 coreFormString CoreDefineSyntax = "define-syntax"
 coreFormString CoreLambda       = "lambda"

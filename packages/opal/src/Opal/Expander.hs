@@ -386,7 +386,7 @@ dispatchCoreForm CoreApp stx = case stx of
 dispatchCoreForm CoreBegin stx = case stx of
   [syntax| (begin ?exprs ...+) |] -> expandBegin exprs
   _ -> throwBadSyntax CoreBegin stx
-dispatchCoreForm CoreBeginSyntax stx = undefined -- FIXME: unimplemented
+dispatchCoreForm CoreBeginForSyntax stx = undefined -- FIXME: unimplemented
 dispatchCoreForm CoreDefine stx = do
   writeLog (LogEnterCoreForm CoreDefine stx)
   Define id rhs <- matchDefine stx
@@ -737,7 +737,7 @@ partialExpandModuleBegin = loop
             results <- loop args
             bodies' <- loop bodies
             pure (results ++ bodies')
-          TfmCore CoreBeginSyntax -> do
+          TfmCore CoreBeginForSyntax -> do
             undefined
           TfmCore CoreDefine -> do
             Define id rhs <- matchDefine body
