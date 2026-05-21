@@ -30,6 +30,11 @@ module Opal.Expander
   , addUseSiteScope
   , addInsideEdgeScope
   , addOutsideEdgeScope
+    -- ** Expand / parse / eval (re-exported for tests)
+  , expand
+  , expanderEval
+  , expanderParse
+  , importModule
     -- * ExpandConfig
   , ExpandConfig (..)
     -- * ExpandState
@@ -437,6 +442,9 @@ dispatchCoreForm CoreDefineSyntax stx = do
 dispatchCoreForm CoreLambda stx = do
   (args, expr) <- matchLambda stx
   expandLambda args expr
+dispatchCoreForm CoreLet stx = do
+  (bindings, body) <- matchLet stx
+  expandLet bindings body
 dispatchCoreForm CoreLetRec stx = do
   (transIds, valIds, expr) <- matchLetRec stx
   expandLetRec transIds valIds expr
@@ -582,6 +590,39 @@ expandLambda ids expr = do
         stx'   = syntaxScope Nothing sc expr
     result <- expand stx'
     pure [syntax| (lambda (?args:id ...) ?result) |]
+
+-- | Expansion subroutine for the @let@ core syntactic form.
+--
+-- Lowers @(let ((id rhs) ...) body)@ to the equivalent immediately-applied
+-- lambda @((lambda (id ...) body) rhs ...)@ and delegates the rest of
+-- expansion to the existing 'CoreApp' \/ 'CoreLambda' machinery. This
+-- choice — over a 'letrec-values' lowering — keeps the output
+-- /evaluable/: lambda application is the one form the runtime
+-- evaluator handles natively. RHSs are arguments to the application,
+-- so they're evaluated in the outer scope and cannot see each other
+-- (correct @let@ semantics; @let*@ \/ @letrec@ would differ).
+--
+-- @since 1.0.0
+expandLet ::
+  -- | Value bindings extracted from the @let@ form.
+  [(Identifier, Syntax)] ->
+  -- | The body expression.
+  Syntax ->
+  Expand Syntax
+expandLet bindings body = do
+  guardExpressionContext
+    let bindingStxs = map (\(id, stx) -> [syntax| (?id:id ?stx) |]) bindings
+     in [syntax| (let (?bindingStxs ...) ?body) |]
+
+  let ids  = map fst bindings
+      rhss = map snd bindings
+      -- Literal identifiers introduced into the quasiquoter at
+      -- TH-compile time arrive scope-less. To resolve to the core
+      -- form via the imported `#%core`, attach the default scope
+      -- explicitly — same trick `moduleToSyntax` uses for the
+      -- `module` head.
+      lam  = syntaxScope Nothing def [syntax| lambda |]
+  expand [syntax| ((?lam (?ids:id ...) ?body) ?rhss ...) |]
 
 -- | Expansion subroutine for the @letrec-syntaxes+values@ core syntactic form.
 --

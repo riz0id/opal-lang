@@ -50,6 +50,8 @@ data CoreForm
     -- ^ The enumeration for the "define-syntax" core syntactic form.
   | CoreLambda
     -- ^ The enumeration for the "lambda" core syntactic form.
+  | CoreLet
+    -- ^ The enumeration for the "let" core syntactic form.
   | CoreLetRec
     -- ^ The enumeration for the "letrec-syntaxes+values" core syntactic form.
   | CoreModule
@@ -107,6 +109,7 @@ coreFormString CoreBeginForSyntax = "begin-for-syntax"
 coreFormString CoreDefine       = "define"
 coreFormString CoreDefineSyntax = "define-syntax"
 coreFormString CoreLambda       = "lambda"
+coreFormString CoreLet          = "let"
 coreFormString CoreLetRec       = "letrec-syntaxes+values"
 coreFormString CoreModule       = "module"
 coreFormString CoreModuleBegin  = "module-begin"

@@ -21,6 +21,7 @@ module Opal.Expander.Match
   , matchImport
   , matchExport
   , matchLambda
+  , matchLet
   , matchLetRec
   , matchQuote
   , matchQuoteSyntax
@@ -96,6 +97,22 @@ matchLambda :: Syntax -> Expand ([Identifier], Syntax)
 matchLambda original
   | [syntax| (lambda (?args:id ...) ?rhs) |] <- original = pure (args, rhs)
   | otherwise = throwBadSyntax CoreDefine original
+
+-- | Syntax match on a @let@ form: @(let ((id rhs) ...) body)@.
+--
+-- @since 1.0.0
+matchLet :: Syntax -> Expand ([(Identifier, Syntax)], Syntax)
+matchLet original
+  | [syntax| (let (?vals ...) ?rhs) |] <- original = do
+    valBindings <- traverse matchBinding vals
+    pure (valBindings, rhs)
+  | otherwise =
+    throwBadSyntax CoreLet original
+  where
+    matchBinding :: Syntax -> Expand (Identifier, Syntax)
+    matchBinding stx
+      | [syntax| (?id:id ?rhs) |] <- stx = pure (id, rhs)
+      | otherwise = throwBadSyntax CoreLet original
 
 -- | Syntax match on a @letrec-syntax+values@ form.
 --

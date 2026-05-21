@@ -26,6 +26,8 @@
 
   (define-syntax plain-define
     (lambda (stx)
-      (datum->syntax stx
-        (cons (quote-syntax define)
-              (cdr (syntax-e stx)))))))
+      ;; `let` (Stage 1.5) makes the dataflow readable: peel the wrapper,
+      ;; drop the macro name, prepend `define`, lift back to syntax.
+      (let ((args (cdr (syntax-e stx))))
+        (datum->syntax stx
+          (cons (quote-syntax define) args))))))

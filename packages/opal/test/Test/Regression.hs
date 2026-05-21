@@ -19,7 +19,8 @@ module Test.Regression
   )
 where
 
-import Control.Lens (view)
+import Control.Lens (view, (%=))
+import Control.Monad (void)
 
 import Data.Default (def)
 import Data.Foldable (for_)
@@ -48,8 +49,11 @@ import Opal.Expander.Monad
 import Opal.Expander (withIntroScope)
 import Opal.Parser (runParseSyntax)
 import Opal.Evaluator (runEvalSExp)
+import Opal.Expander (expand, expanderEval, expanderParse, importModule)
+import Opal.Expander.Monad (expandNamespace)
+import Opal.Module (declareModule, newCoreModule)
 import Opal.Primitives (lookupPrimitive)
-import Opal.Syntax (Datum (..), SExp (..), syntaxToDatum)
+import Opal.Syntax (Datum (..), SExp (..), syntaxScope, syntaxToDatum)
 import Opal.Syntax.Primitive (prim_apply)
 import Opal.Syntax.ScopeInfo qualified as ScopeInfo
 import Opal.Syntax.TH (syntax)
@@ -67,6 +71,16 @@ runExpandTest action = do
     Left  exn      -> fail ("Expand threw: " <> show exn)
     Right (a, _st) -> pure a
 
+-- | Like 'runExpandTest' but pre-imports @#%core@ into the
+-- expander's environment, so identifiers like @lambda@\/@let@\/@car@
+-- resolve. Mirrors what 'Opal.Expander.runExpandSyntax' does for
+-- real source files.
+runExpandTestWithCore :: Expand a -> IO a
+runExpandTestWithCore action = runExpandTest do
+  expandNamespace %= declareModule "#%core" (newCoreModule def) False
+  void (importModule def "#%core")
+  action
+
 --------------------------------------------------------------------------------
 
 testTree :: TestTree
@@ -81,6 +95,7 @@ testTree =
     , useSiteScopeGateWrongContext
     , quasiReaderDoesNotHandleComments
     , primitivesAreReachableFromMacros
+    , letAsDerivedForm
     ]
 
 -- | Regression tests for
@@ -566,4 +581,41 @@ primitivesAreReachableFromMacros =
         case result of
           Left _exn      -> fail "Eval threw an EvalError"
           Right (val, _) -> val === DatumI32 1
+    ]
+
+-- | Stage-1.5 regression test for `let` (see
+-- @plans/template-construction-primitives.md@). `let` is implemented
+-- as a derived 'CoreLet' that lowers @(let ((id rhs) ...) body)@ to
+-- the immediately-applied lambda @((lambda (id ...) body) rhs ...)@.
+-- This keeps the lowering /evaluable/ — lambda application is the
+-- one form the runtime evaluator handles natively.
+letAsDerivedForm :: TestTree
+letAsDerivedForm =
+  testGroup "let-as-derived-form"
+    [ testUnit "(let ((x #t)) x) expands without error" do
+        annotate "plans/template-construction-primitives.md — Stage 1.5"
+        -- A smoke test: expanding the form should succeed (resolving
+        -- `let` to CoreLet, lowering to a lambda application,
+        -- resolving the inner `lambda` to CoreLambda, processing the
+        -- body). If `lambda` isn't scope-tagged correctly by
+        -- expandLet, this fails with "not in scope".
+        _ <- evalIO $ runExpandTestWithCore do
+          -- Quasiquoted syntax arrives with empty scope set; attach the
+          -- default scope so `let`/`lambda` resolve against #%core.
+          let prog = syntaxScope Nothing def [syntax| (let ((x #t)) x) |]
+          withExpressionContext (expand prog)
+        pure ()
+
+    , testUnit "(let ((x #t)) x) evaluates to #t" do
+        annotate "plans/template-construction-primitives.md — Stage 1.5"
+        -- End-to-end: after expansion the form becomes a lambda
+        -- application that the evaluator runs. Verify the binding
+        -- semantics: x in the body resolves to the let-introduced
+        -- binder, which evaluates to #t.
+        result <- evalIO $ runExpandTestWithCore do
+          let prog = syntaxScope Nothing def [syntax| (let ((x #t)) x) |]
+          stx  <- withExpressionContext (expand prog)
+          sexp <- expanderParse stx
+          expanderEval sexp
+        result === DatumB True
     ]
