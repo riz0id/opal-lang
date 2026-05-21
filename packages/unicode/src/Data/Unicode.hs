@@ -44,24 +44,21 @@ where
 import Data.Bits qualified as Bits
 import Data.Char qualified as Char
 import Data.Primitive.Ptr (readOffPtr)
+import Data.Unicode.Prim
+  ( chr1#, chr2#, chr3#, chr4#
+  , ord1#, ord2#, ord3#, ord4#
+  , sizeofCharUtf8#
+  )
 import Data.Unicode.TH (staticListE)
 
 import Foreign.ForeignPtr (ForeignPtr, withForeignPtr)
 
-import GHC.Exts (Char (..), Char#, Int (..), Word#, Word8#, Int#)
+import GHC.Exts (Char (..), Int (..))
 import GHC.Exts qualified as GHC
 import GHC.IO (unsafeDupablePerformIO)
 import GHC.Ptr (Ptr (..), plusPtr)
 import GHC.Storable (readWord8OffPtr, writeWord8OffPtr)
 import GHC.Word (Word8 (..))
-
---------------------------------------------------------------------------------
-
-wordToChar# :: Word# -> Char#
-wordToChar# x# = GHC.chr# (GHC.word2Int# x#)
-
-charToWord# :: Char# -> Word#
-charToWord# x# = GHC.int2Word# (GHC.ord# x#)
 
 --------------------------------------------------------------------------------
 
@@ -72,10 +69,6 @@ ord1 :: Char -> Word8
 ord1 (C# x#) = W8# (ord1# x#)
 {-# INLINE ord1 #-}
 
--- TODO: docs
-ord1# :: Char# -> Word8#
-ord1# x# = GHC.wordToWord8# (charToWord# x#)
-
 -- | TODO: docs
 --
 -- @since 1.0.0
@@ -83,13 +76,6 @@ ord2 :: Char -> (Word8, Word8)
 ord2 (C# x#) = case ord2# x# of
   (# b0#, b1# #) -> (W8# b0#, W8# b1#)
 {-# INLINE ord2 #-}
-
--- TODO: docs
-ord2# :: Char# -> (# Word8#, Word8# #)
-ord2# (charToWord# -> x#) =
-  let !b0# = GHC.or# 0xc0## (GHC.and# 0xff## (GHC.uncheckedShiftRL# x# 6#))
-      !b1# = GHC.or# 0x80## (GHC.and# 0x3f## (GHC.uncheckedShiftRL# x# 0#))
-   in (# GHC.wordToWord8# b0#, GHC.wordToWord8# b1# #)
 
 -- | TODO: docs
 --
@@ -99,14 +85,6 @@ ord3 (C# x#) = case ord3# x# of
   (# b0#, b1#, b2# #) -> (W8# b0#, W8# b1#, W8# b2#)
 {-# INLINE ord3 #-}
 
--- TODO: docs
-ord3# :: Char# -> (# Word8#, Word8#, Word8# #)
-ord3# (charToWord# -> x#) =
-  let !b0# = GHC.or# 0xe0## (GHC.and# 0xff## (GHC.uncheckedShiftRL# x# 12#))
-      !b1# = GHC.or# 0x80## (GHC.and# 0x3f## (GHC.uncheckedShiftRL# x# 6#))
-      !b2# = GHC.or# 0x80## (GHC.and# 0x3f## (GHC.uncheckedShiftRL# x# 0#))
-   in (# GHC.wordToWord8# b0#, GHC.wordToWord8# b1#, GHC.wordToWord8# b2# #)
-
 -- | TODO: docs
 --
 -- @since 1.0.0
@@ -114,15 +92,6 @@ ord4 :: Char -> (Word8, Word8, Word8, Word8)
 ord4 (C# x#) = case ord4# x# of
   (# b0#, b1#, b2#, b3# #) -> (W8# b0#, W8# b1#, W8# b2#, W8# b3#)
 {-# INLINE ord4 #-}
-
--- TODO: docs
-ord4# :: Char# -> (# Word8#, Word8#, Word8#, Word8# #)
-ord4# (charToWord# -> x#) =
-  let !b0# = GHC.or# 0xf0## (GHC.and# 0xff## (GHC.uncheckedShiftRL# x# 18#))
-      !b1# = GHC.or# 0x80## (GHC.and# 0x3f## (GHC.uncheckedShiftRL# x# 12#))
-      !b2# = GHC.or# 0x80## (GHC.and# 0x3f## (GHC.uncheckedShiftRL# x# 6#))
-      !b3# = GHC.or# 0x80## (GHC.and# 0x3f## (GHC.uncheckedShiftRL# x# 0#))
-   in (# GHC.wordToWord8# b0#, GHC.wordToWord8# b1#, GHC.wordToWord8# b2#, GHC.wordToWord8# b3# #)
 
 -- | Decode a 1-byte UTF-8 sequence. The byte must be in the ASCII
 -- range (@\< 0x80@); any other input is invalid UTF-8 (a leader or
@@ -135,13 +104,6 @@ chr1 b@(W8# x#)
   | b < 0x80  = Just (C# (chr1# x#))
   | otherwise = Nothing
 {-# INLINE chr1 #-}
-
--- | Unchecked 1-byte UTF-8 decode primop. The caller is responsible
--- for ensuring the input is in @0x00..0x7F@; out-of-range bytes
--- produce a 'Char' that is /not/ a valid 1-byte UTF-8 decode but
--- whose Latin-1 code point matches the byte value.
-chr1# :: Word8# -> Char#
-chr1# x# = wordToChar# (GHC.word8ToWord# x#)
 
 -- | Decode a 2-byte UTF-8 sequence. Rejects malformed continuation
 -- bytes (high bits must be @10@) and overlong encodings of code
@@ -158,17 +120,6 @@ chr2 (W8# x#) b2@(W8# y#)
   where
     !c = C# (chr2# x# y#)
 {-# INLINE chr2 #-}
-
--- | Unchecked 2-byte UTF-8 decode primop. The caller is responsible
--- for ensuring the input is a well-formed 2-byte sequence; malformed
--- input produces a 'Char#' whose value mixes in the spurious high
--- bits of the leader\/continuation. See 'chr2' for the validating
--- variant.
-chr2# :: Word8# -> Word8# -> Char#
-chr2# x# y# =
-  let !b0# = GHC.uncheckedShiftL# (GHC.and# (GHC.word8ToWord# x#) 0x3f##) 6#
-      !b1# = GHC.uncheckedShiftL# (GHC.and# (GHC.word8ToWord# y#) 0x7f##) 0#
-   in wordToChar# (b0# `GHC.or#` b1#)
 
 -- | Decode a 3-byte UTF-8 sequence. Rejects malformed continuation
 -- bytes, overlong encodings of code points @\< 0x800@, and code
@@ -187,15 +138,6 @@ chr3 (W8# x#) b2@(W8# y#) b3@(W8# z#)
     !cp = Char.ord c
 {-# INLINE chr3 #-}
 
--- | Unchecked 3-byte UTF-8 decode primop. See 'chr3' for the safe
--- variant.
-chr3# :: Word8# -> Word8# -> Word8# -> Char#
-chr3# x# y# z# =
-  let !b0# = GHC.uncheckedShiftL# (GHC.and# (GHC.word8ToWord# x#) 0x1f##) 12#
-      !b1# = GHC.uncheckedShiftL# (GHC.and# (GHC.word8ToWord# y#) 0x7f##) 6#
-      !b2# = GHC.uncheckedShiftL# (GHC.and# (GHC.word8ToWord# z#) 0x7f##) 0#
-   in wordToChar# (b0# `GHC.or#` b1# `GHC.or#` b2#)
-
 -- | Decode a 4-byte UTF-8 sequence. Rejects malformed continuation
 -- bytes, overlong encodings of code points @\< 0x10000@, and out-of-
 -- Unicode code points above @U+10FFFF@. Delegates the arithmetic to
@@ -213,16 +155,6 @@ chr4 (W8# x#) b2@(W8# y#) b3@(W8# z#) b4@(W8# w#)
     !c  = C# (chr4# x# y# z# w#)
     !cp = Char.ord c
 {-# INLINE chr4 #-}
-
--- | Unchecked 4-byte UTF-8 decode primop. See 'chr4' for the safe
--- variant.
-chr4# :: Word8# -> Word8# -> Word8# -> Word8# -> Char#
-chr4# x# y# z# w# =
-  let !b0# = GHC.uncheckedShiftL# (GHC.and# (GHC.word8ToWord# x#) 0x0f##) 18#
-      !b1# = GHC.uncheckedShiftL# (GHC.and# (GHC.word8ToWord# y#) 0x7f##) 12#
-      !b2# = GHC.uncheckedShiftL# (GHC.and# (GHC.word8ToWord# z#) 0x7f##) 6#
-      !b3# = GHC.uncheckedShiftL# (GHC.and# (GHC.word8ToWord# w#) 0x7f##) 0#
-   in wordToChar# (b0# `GHC.or#` b1# `GHC.or#` b2# `GHC.or#` b3#)
 
 -- | A UTF-8 continuation byte has the high two bits set to @10@.
 --
@@ -329,15 +261,6 @@ sizeofLeaderUtf8 (W8# x#) =
 sizeofCharUtf8 :: Char -> Int
 sizeofCharUtf8 (C# x#) = I# (sizeofCharUtf8# x#)
 {-# INLINE sizeofCharUtf8 #-}
-
--- | Unboxed primop behind 'sizeofCharUtf8'. Sums three @\>=@
--- comparisons to pick a width in @1..4@.
-sizeofCharUtf8# :: Char# -> Int#
-sizeofCharUtf8# x# =
-  let !cmp0# = GHC.geChar# x# '\x80'#
-      !cmp1# = GHC.geChar# x# '\x800'#
-      !cmp2# = GHC.geChar# x# '\x10000'#
-   in cmp0# GHC.+# cmp1# GHC.+# cmp2# GHC.+# 1#
 
 -- | \(O(n)\). Encode a 'String' as UTF-8 starting at @ptr@. Caller
 -- must guarantee that @ptr@ has at least 'sizeofStringUtf8' bytes
