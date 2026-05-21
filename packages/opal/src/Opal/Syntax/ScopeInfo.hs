@@ -135,11 +135,24 @@ inserts (Just ph) scps (ScopeInfo gscps mscps)
           then ScopeInfo gscps mscps
           else ScopeInfo gscps (MultiScope.inserts ph scps' mscps)
 
--- | TODO: docs
+-- | Toggle a 'Scope' in a 'ScopeInfo'.
+--
+-- * @'flipScope' 'Nothing' sc@ toggles @sc@ in the phase-independent
+--   (global) scope set. This is the form used by macro-introduction
+--   scopes, use-site scopes, and rename-transformer intro scopes, which
+--   the scope-sets model and Racket's @flip-scope@ treat as plain scopes
+--   that live phase-independently.
+--
+-- * @'flipScope' ('Just' ph) sc@ toggles @sc@ in the per-phase slot at
+--   phase @ph@. This is the form used by module multi-scope members
+--   (inside-edge scopes), which are genuinely phase-specific.
 --
 -- @since 1.0.0
-flipScope :: Phase -> Scope -> ScopeInfo -> ScopeInfo
-flipScope ph sc (ScopeInfo gscps mscps) = ScopeInfo gscps (MultiScope.flipScope ph sc mscps)
+flipScope :: Maybe Phase -> Scope -> ScopeInfo -> ScopeInfo
+flipScope Nothing   sc (ScopeInfo gscps mscps) =
+  ScopeInfo (ScopeSet.flipScope sc gscps) mscps
+flipScope (Just ph) sc (ScopeInfo gscps mscps) =
+  ScopeInfo gscps (MultiScope.flipScope ph sc mscps)
 
 -- | TODO: docs
 --

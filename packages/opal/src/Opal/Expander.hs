@@ -285,13 +285,16 @@ scopeSyntax True  sc id = do
   ph <- view expandCurrentPhase
   pure (syntaxScope (Just ph) sc id)
 
--- | TODO: docs
+-- | Flip a macro-introduction or use-site scope on a 'Syntax' object.
+-- These scopes are plain scopes per the scope-sets model and Racket's
+-- @flip-scope@: they live in the phase-independent scope set and must
+-- be flipped phase-independently so that the symmetry argument
+-- (add-before, remove-after) holds even when the expanded syntax is
+-- later visited at a different phase.
 --
 -- @since 1.0.0
 flipSyntax :: Scope -> Syntax -> Expand Syntax
-flipSyntax sc id = do
-  ph <- view expandCurrentPhase
-  pure (syntaxFlipScope ph sc id)
+flipSyntax sc id = pure (syntaxFlipScope Nothing sc id)
 
 -- Expand - Expand Operations --------------------------------------------------
 
@@ -475,7 +478,11 @@ applyTransformer t stx = do
       if ctx == ContextDefinition
         then do
           usageScope <- newUsageScope
-          scopeSyntax True usageScope s
+          -- Use-site scopes are plain scopes (per the scope-sets paper
+          -- §4.2 and Racket's use-site implementation): attached
+          -- phase-independently so the later prune-on-binder step
+          -- works correctly at every phase.
+          pure (syntaxScope Nothing usageScope s)
         else pure s
 
     maybeCreateInsideEdgeScope :: Syntax -> Expand Syntax
@@ -490,7 +497,9 @@ applyTransformer t stx = do
 applyRenameTransformer :: Identifier -> Syntax -> Expand Syntax
 applyRenameTransformer id stx = do
   introScope <- newIntroScope
-  introId    <- scopeId True introScope id
+  -- Intro scopes are plain scopes: attach phase-independently so the
+  -- corresponding flip removes them at every phase.
+  let introId = identifierScope Nothing introScope id
   pure (syntaxTrackOrigin [syntax| ?introId:id |] stx)
 
 expand :: Syntax -> Expand Syntax

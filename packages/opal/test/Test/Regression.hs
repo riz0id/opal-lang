@@ -43,6 +43,7 @@ testTree =
     [ scopeInfoInsertsIntersectionBug
     , parserIdApplicationNonExhaustive
     , multiscopeDeleteNothingWipesMultiscope
+    , introAndUseSiteScopesArePhaseSpecific
     ]
 
 -- | Regression tests for
@@ -188,4 +189,56 @@ multiscopeDeleteNothingWipesMultiscope =
         ScopeSet.member scPhase  lookupPh1 === True
         -- And the newly-added global scope is visible at every phase.
         ScopeSet.member scGlobal lookupPh1 === True
+    ]
+
+-- | Regression tests for
+-- @review/issues/open/intro-and-use-site-scopes-are-phase-specific.md@.
+--
+-- The bug: macro-introduction and use-site scopes were flipped/applied
+-- via @ScopeInfo.flipScope :: Phase -> Scope -> ScopeInfo ->
+-- ScopeInfo@ and @scopeSyntax True@, both of which routed through the
+-- per-phase 'MultiScope'. That made intro and use-site scopes
+-- phase-specific (visible only at the expander's current phase). Per
+-- the scope-sets paper §4 and Racket's @flip-scope@, these scopes are
+-- plain scopes and must live in the phase-independent set so the
+-- "flip on input, flip on output" symmetry is preserved across phases.
+--
+-- The fix generalises @ScopeInfo.flipScope@ and @syntaxFlipScope@ to
+-- @Maybe Phase -> ...@, with @Nothing@ targeting the global set, and
+-- changes the expander's @flipSyntax@, @maybeCreateUseSiteScope@, and
+-- @applyRenameTransformer@ to pass @Nothing@.
+introAndUseSiteScopesArePhaseSpecific :: TestTree
+introAndUseSiteScopesArePhaseSpecific =
+  testGroup "intro-and-use-site-scopes-are-phase-specific"
+    [ testUnit "ScopeInfo.flipScope Nothing adds to the global set" do
+        annotate "see review/issues/open/intro-and-use-site-scopes-are-phase-specific.md"
+        let sc    = Scope 5000
+            info1 = ScopeInfo.flipScope Nothing sc ScopeInfo.empty
+        -- Visible at any phase, because it lives in the global set.
+        ScopeSet.member sc (ScopeInfo.lookup Nothing  info1) === True
+        ScopeSet.member sc (ScopeInfo.lookup (Just (Phase 0)) info1) === True
+        ScopeSet.member sc (ScopeInfo.lookup (Just (Phase 1)) info1) === True
+
+    , testUnit "ScopeInfo.flipScope Nothing is its own inverse (intro flip symmetry)" do
+        annotate "see review/issues/open/intro-and-use-site-scopes-are-phase-specific.md"
+        let sc    = Scope 5100
+            info1 = ScopeInfo.flipScope Nothing sc ScopeInfo.empty
+            info2 = ScopeInfo.flipScope Nothing sc info1
+        -- After flipping twice, the scope must be gone — at every
+        -- phase. This is the symmetry the macro intro flip relies on.
+        ScopeSet.member sc (ScopeInfo.lookup Nothing           info2) === False
+        ScopeSet.member sc (ScopeInfo.lookup (Just (Phase 0))  info2) === False
+        ScopeSet.member sc (ScopeInfo.lookup (Just (Phase 1))  info2) === False
+
+    , testUnit "ScopeInfo.flipScope Nothing does not disturb per-phase scopes" do
+        annotate "see review/issues/open/intro-and-use-site-scopes-are-phase-specific.md"
+        let ph      = Phase 1
+            scIntro = Scope 5200
+            scPhase = Scope 5201
+            info0   = ScopeInfo.insert (Just ph) scPhase ScopeInfo.empty
+            info1   = ScopeInfo.flipScope Nothing scIntro info0
+        -- The intro flip touches gscps only; the existing per-phase
+        -- scope at phase 1 is preserved.
+        ScopeSet.member scIntro (ScopeInfo.lookup Nothing   info1) === True
+        ScopeSet.member scPhase (ScopeInfo.lookup (Just ph) info1) === True
     ]

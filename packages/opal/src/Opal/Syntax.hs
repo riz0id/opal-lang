@@ -565,10 +565,13 @@ syntaxScope ph sc (SyntaxList stxs info) =
       info' = over stxInfoScopes (ScopeInfo.insert ph sc) info
    in SyntaxList stxs' info'
 
--- | TODO: docs
+-- | Toggle a 'Scope' on a 'Syntax' object, propagating recursively into any
+-- nested syntax. Passing @'Nothing'@ flips the scope phase-independently
+-- (the form used by macro-intro and use-site scopes); passing
+-- @'Just' ph@ flips at phase @ph@ only.
 --
 -- @since 1.0.0
-syntaxFlipScope :: Phase -> Scope -> Syntax -> Syntax
+syntaxFlipScope :: Maybe Phase -> Scope -> Syntax -> Syntax
 syntaxFlipScope ph sc (SyntaxVal val info) =
   let info' = over stxInfoScopes (ScopeInfo.flipScope ph sc) info
    in SyntaxVal val info'
