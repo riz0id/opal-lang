@@ -42,7 +42,12 @@ data ParseError = ParseError
   , parse_error_recieved :: Set Token
   -- ^ The tokens that were actually recieved at the point of the 'ParseError'.
   }
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Show)
+  -- Ord intentionally not derived: the natural lexicographic order
+  -- (by expected then received Token sets) bears no relationship to
+  -- source position or severity. Code that wants to sort errors
+  -- should choose its criterion explicitly. See
+  -- review/issues/closed/parse-error-ord-instance-may-not-be-meaningful.md.
 
 -- | @since 1.0.0
 instance Monoid ParseError where
