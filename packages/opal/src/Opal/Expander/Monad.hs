@@ -30,6 +30,7 @@ module Opal.Expander.Monad
   , withModuleBeginContext
   , withDefinitionContext
   , withExpressionContext
+  , useDefinitionContext
     -- * ExpandConfig
   , ExpandConfig (..)
     -- ** Lenses
@@ -37,6 +38,8 @@ module Opal.Expander.Monad
   , expandCurrentPhase
   , expandContext
   , expandFilePath
+  , expandDefinitionContext
+  , expandIntroScopes
     -- * ExpandError
   , ExpandError (..)
     -- ** Basic Operations
@@ -48,8 +51,6 @@ module Opal.Expander.Monad
     -- ** Lenses
   , expandBindingStore
   , expandNamespace
-  , expandIntroScopes
-  , expandUsageScopes
     -- * ExpansionContext
   , ExpansionContext (..)
     -- ** Basic Operations
@@ -93,8 +94,14 @@ import Opal.Expander.Config
   , expandCurrentPhase
   , expandContext
   , expandFilePath
+  , expandDefinitionContext
+  , expandIntroScopes
   , expansionContextString
   , expansionContextSymbol
+  )
+import Opal.Expander.DefinitionContext
+  ( DefinitionContext
+  , newDefinitionContext
   )
 import Opal.Expander.Log
   ( ExpansionLog (..)
@@ -106,9 +113,7 @@ import Opal.Expander.State
   , defaultExpandState
   , expandBindingStore
   , expandEnvironment
-  , expandIntroScopes
   , expandNamespace
-  , expandUsageScopes
   )
 
 import Prelude hiding (id)
@@ -189,32 +194,90 @@ lookupEnvironment id = do
     Nothing -> throwError (ExpandNotBound (ErrorNotBound id bind))
     Just x  -> pure x
 
--- | TODO: docs
+-- | Enter the top-level context. Allocates a fresh 'DefinitionContext'
+-- (top-level is a definition context per the scope-sets model and
+-- Racket's @expand-context-def-ctx-scopes@), so macro expansions at
+-- the top level see use-site and inside-edge scopes correctly.
 --
 -- @since 1.0.0
 withTopLevelContext :: Expand a -> Expand a
-withTopLevelContext = local (set expandContext ContextTopLevel)
+withTopLevelContext k = do
+  dc <- newDefinitionContext
+  local
+    ( set expandContext           ContextTopLevel
+    . set expandDefinitionContext (Just dc)
+    )
+    k
 
--- | TODO: docs
+-- | Enter the module-level context. No definition context — this is
+-- the wrapper before @module-begin@; definition bookkeeping happens at
+-- @module-begin@.
 --
 -- @since 1.0.0
 withModuleContext :: Expand a -> Expand a
-withModuleContext = local (set expandContext ContextModule)
+withModuleContext = local
+  ( set expandContext           ContextModule
+  . set expandDefinitionContext Nothing
+  )
 
--- | TODO: docs
+-- | Enter the module-begin context. Allocates a fresh
+-- 'DefinitionContext' because module bodies are internal-definition
+-- contexts in the scope-sets model (Racket's
+-- @expand-module@ wraps the body in such a context). This is what
+-- fixes the @use-site-scope-gate-wrong-context@ bug: macros expanded
+-- inside the module body now see a non-'Nothing'
+-- 'expandDefinitionContext' and produce use-site scopes accordingly.
 --
 -- @since 1.0.0
 withModuleBeginContext :: Expand a -> Expand a
-withModuleBeginContext = local (set expandContext ContextModuleBegin)
+withModuleBeginContext k = do
+  dc <- newDefinitionContext
+  local
+    ( set expandContext           ContextModuleBegin
+    . set expandDefinitionContext (Just dc)
+    )
+    k
 
--- | TODO: docs
+-- | Enter an internal-definition context (the body of an internal
+-- @(begin …)@ in a definition position). Allocates a fresh
+-- 'DefinitionContext' so the use-site scopes accumulated by macro
+-- expansions inside the body are scoped to this context, not leaked
+-- to siblings.
 --
 -- @since 1.0.0
 withDefinitionContext :: Expand a -> Expand a
-withDefinitionContext = local (set expandContext ContextDefinition)
+withDefinitionContext k = do
+  dc <- newDefinitionContext
+  local
+    ( set expandContext           ContextDefinition
+    . set expandDefinitionContext (Just dc)
+    )
+    k
 
--- | TODO: docs
+-- | Enter an expression context. Clears the definition context — no
+-- definitions or use-site scope creation are valid inside an
+-- expression.
 --
 -- @since 1.0.0
 withExpressionContext :: Expand a -> Expand a
-withExpressionContext = local (set expandContext ContextExpression)
+withExpressionContext = local
+  ( set expandContext           ContextExpression
+  . set expandDefinitionContext Nothing
+  )
+
+-- | Read the current 'DefinitionContext', failing with an internal
+-- error if none is in scope.
+--
+-- Use this in code paths that are reachable only when
+-- 'expandDefinitionContext' is guaranteed to be set by a surrounding
+-- @with…Context@ — e.g. the @define@ pruning step in
+-- @partialExpandModuleBegin@. Callers that genuinely want to handle
+-- the @Nothing@ case should use @view expandDefinitionContext@
+-- directly.
+--
+-- @since 1.0.0
+useDefinitionContext :: String -> Expand DefinitionContext
+useDefinitionContext caller =
+  view expandDefinitionContext >>= \case
+    Just dc -> pure dc
+    Nothing -> error (caller ++ ": no definition context in scope")

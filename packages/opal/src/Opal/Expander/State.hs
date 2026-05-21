@@ -24,8 +24,6 @@ module Opal.Expander.State
   , expandBindingStore
   , expandEnvironment
   , expandNamespace
-  , expandIntroScopes
-  , expandUsageScopes
   )
 where
 
@@ -36,7 +34,6 @@ import GHC.Generics (Generic)
 import Opal.Binding.BindingStore (BindingStore)
 import Opal.Binding.Environment (Environment)
 import Opal.Common.Lens (defineLenses)
-import Opal.Common.ScopeSet (ScopeSet)
 import Opal.Module (Namespace (..))
 
 import Prelude hiding (id)
@@ -44,6 +41,13 @@ import Prelude hiding (id)
 -- ExpandState -----------------------------------------------------------------
 
 -- | 'ExpandState' is the read-only state of the 'Expand' monad.
+--
+-- Note: macro-introduction scopes and use-site scopes — formerly fields
+-- of 'ExpandState' — now live in 'Opal.Expander.Config.ExpandConfig'
+-- (the @Reader@ for intro scopes) and in
+-- 'Opal.Expander.DefinitionContext.DefinitionContext' (the per-context
+-- mutable box for use-site scopes). See
+-- @plans\/expander-macro-state-refactor.md@.
 --
 -- @since 1.0.0
 data ExpandState = ExpandState
@@ -56,10 +60,6 @@ data ExpandState = ExpandState
     -- from the expanders's binding store.
   , expand_namespace     :: {-# UNPACK #-} !Namespace
     -- ^ TODO: docs
-  , expand_intro_scopes  :: ScopeSet
-  -- ^ The set of scopes to be pruned at syntax forms.
-  , expand_usage_scopes  :: ScopeSet
-  -- ^ A subset of the current expansion context's use-stire scopes.
   }
   deriving (Generic, Show)
 
@@ -77,4 +77,4 @@ instance Default ExpandState where
 --
 -- @since 1.0.0
 defaultExpandState :: ExpandState
-defaultExpandState = ExpandState def def def def def
+defaultExpandState = ExpandState def def def

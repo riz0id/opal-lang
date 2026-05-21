@@ -25,15 +25,12 @@ module Opal.Evaluator.Monad
     -- ** Lenses
   , evalEnvironment
   , evalCurrentPhase
-  , evalCurrentScope
     -- * EvalError
   , EvalError (..)
     -- * EvalState
   , EvalState (..)
     -- ** Lenses
   , evalBindingStore
-  , evalIntroScopes
-  , evalUsageScopes
   )
 where
 
@@ -50,13 +47,10 @@ import Opal.Evaluator.Config
   ( EvalConfig(..)
   , evalEnvironment
   , evalCurrentPhase
-  , evalCurrentScope
   )
 import Opal.Evaluator.State
   ( EvalState(..)
   , evalBindingStore
-  , evalIntroScopes
-  , evalUsageScopes
   )
 import Opal.Error (ErrorNotBound, Error (..))
 import Opal.Writer (Display (..))

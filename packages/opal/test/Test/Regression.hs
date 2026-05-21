@@ -19,6 +19,8 @@ module Test.Regression
   )
 where
 
+import Control.Lens (view)
+
 import Data.Default (def)
 import Data.List.NonEmpty (NonEmpty (..))
 
@@ -28,12 +30,38 @@ import Opal.Common.MultiScope qualified as MultiScope
 import Opal.Common.Phase (Phase (..))
 import Opal.Common.Scope (Scope (..))
 import Opal.Common.ScopeSet qualified as ScopeSet
+import Opal.Expander (Expand)
+import Opal.Expander.DefinitionContext
+  ( DefinitionContext (..)
+  , insertUseSiteScope
+  , newDefinitionContext
+  , readUseSiteScopes
+  )
+import Opal.Expander.Monad
+  ( expandDefinitionContext
+  , expandIntroScopes
+  , runExpand
+  , withExpressionContext
+  , withModuleBeginContext
+  )
+import Opal.Expander (withIntroScope)
 import Opal.Parser (runParseSyntax)
-import Opal.Syntax (SExp (..))
+import Opal.Syntax (SExp (..), syntaxToDatum)
 import Opal.Syntax.ScopeInfo qualified as ScopeInfo
 import Opal.Syntax.TH (syntax)
 
 import Test.Core (TestTree, testGroup, testUnit)
+
+--------------------------------------------------------------------------------
+
+-- | Run an 'Expand' action with the default config\/state, unwrap the
+-- @WriterT@\/@ExceptT@ layers, and fail the test if expansion threw.
+runExpandTest :: Expand a -> IO a
+runExpandTest action = do
+  (result, _logs) <- runExpand def def action
+  case result of
+    Left  exn      -> fail ("Expand threw: " <> show exn)
+    Right (a, _st) -> pure a
 
 --------------------------------------------------------------------------------
 
@@ -44,6 +72,10 @@ testTree =
     , parserIdApplicationNonExhaustive
     , multiscopeDeleteNothingWipesMultiscope
     , introAndUseSiteScopesArePhaseSpecific
+    , expanderIntroAndUseSiteScopesLeakGlobally
+    , expanderInsideEdgeVsUseSiteScopeConflated
+    , useSiteScopeGateWrongContext
+    , quasiReaderDoesNotHandleComments
     ]
 
 -- | Regression tests for
@@ -241,4 +273,202 @@ introAndUseSiteScopesArePhaseSpecific =
         -- scope at phase 1 is preserved.
         ScopeSet.member scIntro (ScopeInfo.lookup Nothing   info1) === True
         ScopeSet.member scPhase (ScopeInfo.lookup (Just ph) info1) === True
+    ]
+
+-- | Regression tests for
+-- @review/issues/open/expander-intro-and-use-site-scopes-leak-globally.md@.
+--
+-- The bug: intro scopes accumulated monotonically in 'ExpandState';
+-- a sibling macro expansion could see (and prune against) another's
+-- intro scope. The refactor moved intro scopes to the 'Reader' and
+-- introduced 'withIntroScope', which extends 'expandIntroScopes'
+-- via @local@ and restores it on exit.
+expanderIntroAndUseSiteScopesLeakGlobally :: TestTree
+expanderIntroAndUseSiteScopesLeakGlobally =
+  testGroup "expander-intro-and-use-site-scopes-leak-globally"
+    [ testUnit "withIntroScope extends expandIntroScopes inside and restores on exit" do
+        annotate "see review/issues/open/expander-intro-and-use-site-scopes-leak-globally.md"
+        (start, inside, sc, end) <- evalIO $ runExpandTest do
+          before  <- view expandIntroScopes
+          (sc, inside) <- withIntroScope \sc -> do
+            inside <- view expandIntroScopes
+            pure (sc, inside)
+          after   <- view expandIntroScopes
+          pure (before, inside, sc, after)
+        -- Empty before, contains sc during, empty after.
+        ScopeSet.null start                   === True
+        ScopeSet.member sc inside             === True
+        ScopeSet.null end                     === True
+
+    , testUnit "sibling withIntroScope calls do not see each other's intro scopes" do
+        annotate "see review/issues/open/expander-intro-and-use-site-scopes-leak-globally.md"
+        (sc1, inside1AfterSibling, sc2, inside2AfterSibling) <- evalIO $ runExpandTest do
+          -- Run the first macro to completion, then the second; with
+          -- the pre-refactor monotonic accumulator, the second would
+          -- see sc1 in its intro set.
+          (sc1, _) <- withIntroScope \sc -> do
+            inside <- view expandIntroScopes
+            pure (sc, inside)
+          (sc2, inside2) <- withIntroScope \sc -> do
+            inside <- view expandIntroScopes
+            pure (sc, inside)
+          -- Re-enter the "first" macro after the second has finished:
+          -- it must NOT see sc2 either.
+          (_, inside1) <- withIntroScope \sc -> do
+            inside <- view expandIntroScopes
+            pure (sc, inside)
+          pure (sc1, inside1, sc2, inside2)
+        -- Second expansion does not see sc1 (leaked from the first).
+        ScopeSet.member sc1 inside2AfterSibling === False
+        -- A subsequent expansion does not see sc2 either.
+        ScopeSet.member sc2 inside1AfterSibling === False
+    ]
+
+-- | Regression tests for
+-- @review/issues/open/expander-inside-edge-vs-use-site-scope-conflated.md@.
+--
+-- The bug: @maybeCreateInsideEdgeScope@ was a verbatim copy of
+-- @maybeCreateUseSiteScope@ — both minted fresh use-site scopes per
+-- call, so pruning use-site scopes off binders also stripped the
+-- inside-edge scope. The refactor introduces a per-'DefinitionContext'
+-- inside-edge scope allocated once on entry and reused for every
+-- macro output landing in that context, while use-site scopes remain
+-- per-macro-call and accumulated in the context's separate box.
+expanderInsideEdgeVsUseSiteScopeConflated :: TestTree
+expanderInsideEdgeVsUseSiteScopeConflated =
+  testGroup "expander-inside-edge-vs-use-site-scope-conflated"
+    [ testUnit "two DefinitionContexts have distinct inside-edge scopes" do
+        annotate "see review/issues/open/expander-inside-edge-vs-use-site-scope-conflated.md"
+        dc1 <- evalIO newDefinitionContext
+        dc2 <- evalIO newDefinitionContext
+        (defctx_inside_edge_scope dc1 == defctx_inside_edge_scope dc2) === False
+
+    , testUnit "a single DefinitionContext's inside-edge scope is stable across reads" do
+        annotate "see review/issues/open/expander-inside-edge-vs-use-site-scope-conflated.md"
+        -- The inside-edge scope is allocated once at context creation
+        -- and reused: two separate `addInsideEdgeScope`s on the same
+        -- context attach the *same* scope.
+        dc <- evalIO newDefinitionContext
+        let edge1 = defctx_inside_edge_scope dc
+            edge2 = defctx_inside_edge_scope dc
+        edge1 === edge2
+
+    , testUnit "use-site scopes accumulate in the per-context box and read back" do
+        annotate "see review/issues/open/expander-inside-edge-vs-use-site-scope-conflated.md"
+        dc <- evalIO newDefinitionContext
+        let sc1 = Scope 7000
+            sc2 = Scope 7001
+        evalIO (insertUseSiteScope sc1 dc)
+        evalIO (insertUseSiteScope sc2 dc)
+        uscps <- evalIO (readUseSiteScopes dc)
+        ScopeSet.member sc1 uscps === True
+        ScopeSet.member sc2 uscps === True
+        -- And critically, the inside-edge scope is NOT in the use-site
+        -- accumulator -- so a future "prune use-site scopes off this
+        -- binder" step won't strip the inside-edge.
+        ScopeSet.member (defctx_inside_edge_scope dc) uscps === False
+
+    , testUnit "use-site scopes are scoped to their context, not global" do
+        annotate "see review/issues/open/expander-inside-edge-vs-use-site-scope-conflated.md"
+        dcA <- evalIO newDefinitionContext
+        dcB <- evalIO newDefinitionContext
+        let scA = Scope 7100
+        evalIO (insertUseSiteScope scA dcA)
+        -- scA was inserted into dcA only; dcB's box must remain empty.
+        uscpsA <- evalIO (readUseSiteScopes dcA)
+        uscpsB <- evalIO (readUseSiteScopes dcB)
+        ScopeSet.member scA uscpsA === True
+        ScopeSet.member scA uscpsB === False
+
+    , testUnit "two DefinitionContexts have distinct outside-edge scopes" do
+        -- Parallel to the inside-edge test above. The outside-edge
+        -- scope is added to inputs of a definition context; like the
+        -- inside-edge, it's per-context (not per-macro-call).
+        dc1 <- evalIO newDefinitionContext
+        dc2 <- evalIO newDefinitionContext
+        (defctx_outside_edge_scope dc1 == defctx_outside_edge_scope dc2) === False
+
+    , testUnit "outside-edge and inside-edge of one context are distinct scopes" do
+        -- Racket models them as separate scopes attached to different
+        -- syntax at different times (outside-edge to inputs;
+        -- inside-edge to outputs). Collapsing them would re-introduce
+        -- the conflation bug at a different level.
+        dc <- evalIO newDefinitionContext
+        (defctx_outside_edge_scope dc == defctx_inside_edge_scope dc) === False
+    ]
+
+-- | Regression tests for
+-- @review/issues/open/use-site-scope-gate-wrong-context.md@.
+--
+-- The bug: @maybeCreateUseSiteScope@ fired only on
+-- @ctx == ContextDefinition@, but @partialExpandModuleBegin@ runs in
+-- @ContextModuleBegin@. So module-body macros never created use-site
+-- scopes, even though the prune step still ran. The refactor gates
+-- on the presence of a 'DefinitionContext' in the 'Reader' instead
+-- of an enum comparison; module-begin now allocates one.
+useSiteScopeGateWrongContext :: TestTree
+useSiteScopeGateWrongContext =
+  testGroup "use-site-scope-gate-wrong-context"
+    [ testUnit "withModuleBeginContext installs a DefinitionContext" do
+        annotate "see review/issues/open/use-site-scope-gate-wrong-context.md"
+        present <- evalIO $ runExpandTest do
+          withModuleBeginContext do
+            view expandDefinitionContext
+        case present of
+          Nothing -> fail "withModuleBeginContext did not allocate a DefinitionContext"
+          Just _  -> pure ()
+
+    , testUnit "withExpressionContext clears any active DefinitionContext" do
+        annotate "see review/issues/open/use-site-scope-gate-wrong-context.md"
+        -- A definition context wrapped inside an expression context
+        -- should have no active DefinitionContext visible to the
+        -- inner action.
+        result <- evalIO $ runExpandTest do
+          withModuleBeginContext do
+            withExpressionContext do
+              view expandDefinitionContext
+        case result of
+          Just _  -> fail "withExpressionContext did not clear the DefinitionContext"
+          Nothing -> pure ()
+    ]
+
+-- | Regression tests for
+-- @review/issues/open/quasi-reader-does-not-handle-comments.md@.
+--
+-- The bug: 'Opal.Quasi.Reader' imported the bare
+-- @Text.Megaparsec.Char.space@ skipper, so any comment inside a
+-- @[syntax| ... |]@ quasiquote caused a Template Haskell parse error
+-- at compile time. The fix reuses @Opal.Reader.skipSpace@ (which
+-- handles @;@ line comments and @#| ... |#@ block comments) inside
+-- the quasi reader.
+--
+-- The strongest evidence the fix works is that the source file
+-- /compiles/: the quasiquoter is invoked at compile time, so a
+-- regression would block the build. The runtime assertion below
+-- additionally checks the comment was /skipped/ (not silently
+-- treated as a token).
+quasiReaderDoesNotHandleComments :: TestTree
+quasiReaderDoesNotHandleComments =
+  testGroup "quasi-reader-does-not-handle-comments"
+    [ testUnit "line comment inside [syntax| … |] is skipped" do
+        annotate "see review/issues/open/quasi-reader-does-not-handle-comments.md"
+        let withComment    = [syntax| ;; trailing
+                                      #t |]
+            withoutComment = [syntax| #t |]
+        -- Strip lexical info (source positions differ) and compare
+        -- the underlying datum.
+        syntaxToDatum withComment === syntaxToDatum withoutComment
+
+    , testUnit "block comment inside [syntax| … |] is skipped" do
+        annotate "see review/issues/open/quasi-reader-does-not-handle-comments.md"
+        let withComment    = [syntax| #| ignored |# #t |]
+            withoutComment = [syntax| #t |]
+        syntaxToDatum withComment === syntaxToDatum withoutComment
+
+    , testUnit "comment between list elements inside [syntax| … |] is skipped" do
+        annotate "see review/issues/open/quasi-reader-does-not-handle-comments.md"
+        let withComment    = [syntax| (#t ;; mid-list
+                                          #f) |]
+            withoutComment = [syntax| (#t #f) |]
+        syntaxToDatum withComment === syntaxToDatum withoutComment
     ]

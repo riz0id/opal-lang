@@ -28,6 +28,8 @@ module Opal.Expander.Config
   , expandCurrentPhase
   , expandContext
   , expandFilePath
+  , expandDefinitionContext
+  , expandIntroScopes
   )
 where
 
@@ -37,7 +39,9 @@ import GHC.Generics (Generic)
 
 import Opal.Common.Lens (defineLenses)
 import Opal.Common.Phase (Phase)
+import Opal.Common.ScopeSet (ScopeSet)
 import Opal.Common.Symbol (Symbol, stringToSymbol)
+import Opal.Expander.DefinitionContext (DefinitionContext)
 import Opal.Writer (Display (..))
 import Opal.Writer qualified as Doc
 
@@ -97,15 +101,27 @@ expansionContextString ContextDefinition  = "definition"
 --
 -- @since 1.0.0
 data ExpandConfig = ExpandConfig
-  { expand_current_phase :: {-# UNPACK #-} !Phase
+  { expand_current_phase      :: {-# UNPACK #-} !Phase
     -- ^ The current expansion phase.
-  , expand_context       :: ExpansionContext
+  , expand_context            :: ExpansionContext
     -- ^ The current expansion context.
-  , expand_file_path     :: Maybe FilePath
+  , expand_file_path          :: Maybe FilePath
     -- ^ If given, 'expand_file_path' the path to the file the module is
     -- currently expanding. Otherwise, the expander is running in a REPL.
+  , expand_definition_context :: Maybe DefinitionContext
+    -- ^ The current internal-definition context, if any. Set by
+    -- 'Opal.Expander.Monad.withDefinitionContext',
+    -- 'Opal.Expander.Monad.withModuleBeginContext', and
+    -- 'Opal.Expander.Monad.withTopLevelContext'; cleared by
+    -- expression\/module contexts.
+  , expand_intro_scopes       :: ScopeSet
+    -- ^ Macro-introduction scopes currently in scope. Extended via
+    -- 'Control.Monad.Reader.local' on entry to each macro expansion,
+    -- automatically restored on exit. This is what
+    -- @expandQuoteSyntax@ prunes against — only the macros currently
+    -- on the call stack contribute, not every macro ever expanded.
   }
-  deriving (Generic, Show)
+  deriving (Generic)
 
 $(defineLenses ''ExpandConfig)
 
@@ -117,8 +133,9 @@ instance Default ExpandConfig where
 
 -- ExpandConfig - Basic Operations ---------------------------------------------
 
--- | The default 'ExpandConfig'.
+-- | The default 'ExpandConfig'. No active definition context; empty
+-- intro-scope set.
 --
 -- @since 1.0.0
 defaultExpandConfig :: ExpandConfig
-defaultExpandConfig = ExpandConfig def def def
+defaultExpandConfig = ExpandConfig def def def Nothing def

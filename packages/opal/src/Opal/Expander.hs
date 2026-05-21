@@ -25,6 +25,11 @@ module Opal.Expander
   , runExpandAndParseFile
   , runExpandSyntax
   , runExpandAndParseSyntax
+    -- ** Macro-state scoping
+  , withIntroScope
+  , addUseSiteScope
+  , addInsideEdgeScope
+  , addOutsideEdgeScope
     -- * ExpandConfig
   , ExpandConfig (..)
     -- * ExpandState
@@ -32,7 +37,7 @@ module Opal.Expander
   )
 where
 
-import Control.Lens (use, view, (^.), (%~), (.=), (%=), preview, review, set)
+import Control.Lens (use, view, (^.), (%~), (.=), (%=), over, preview, review, set)
 
 import Control.Monad (unless)
 import Control.Monad.Except (MonadError(..))
@@ -60,6 +65,11 @@ import Opal.Core (CoreForm (..))
 import Opal.Error (ErrorNotInScope (..))
 import Opal.Evaluator (EvalConfig (..), EvalError (..), EvalState (..), runEvalSExp)
 import Opal.Evaluator.Monad (evalBindingStore)
+import Opal.Expander.DefinitionContext
+  ( DefinitionContext (..)
+  , insertUseSiteScope
+  , readUseSiteScopes
+  )
 import Opal.Expander.Match
 import Opal.Expander.Monad
 import Opal.Parser (ParseConfig (..), ParseError (..), runParseSyntax)
@@ -249,41 +259,65 @@ newBinding (Identifier s info) = do
 
 -- Expand - Scoping Operations -------------------------------------------------
 
--- | TODO: docs
+-- | Run an action with a fresh macro-introduction scope pushed onto
+-- 'expandIntroScopes' via 'local'. The scope is visible to nested
+-- expansions inside the action and automatically drops out of the
+-- intro set on exit — so sibling macro invocations cannot see each
+-- other's intro scopes (the @leak-globally@ bug fix).
 --
 -- @since 1.0.0
-newIntroScope :: Expand Scope
-newIntroScope = do
+withIntroScope :: (Scope -> Expand a) -> Expand a
+withIntroScope k = do
   sc <- newScope
-  expandIntroScopes %= ScopeSet.insert sc
-  pure sc
+  local (over expandIntroScopes (ScopeSet.insert sc)) (k sc)
 
--- | TODO: docs
+-- | Attach a fresh use-site scope to @s@ when expanding inside a
+-- definition context (module body, internal @begin@, top level).
+-- Outside a definition context, this is a no-op — use-site scopes
+-- have no meaning there.
+--
+-- The fresh scope is added to the surrounding 'DefinitionContext'\'s
+-- use-site accumulator so that @partialExpandModuleBegin@ can later
+-- prune it off the binders this macro produces.
 --
 -- @since 1.0.0
-newUsageScope :: Expand Scope
-newUsageScope = do
-  sc <- newScope
-  expandUsageScopes %= ScopeSet.insert sc
-  pure sc
+addUseSiteScope :: Syntax -> Expand Syntax
+addUseSiteScope s =
+  view expandDefinitionContext >>= \case
+    Nothing -> pure s
+    Just dc -> do
+      usc <- newScope
+      insertUseSiteScope usc dc
+      pure (syntaxScope Nothing usc s)
 
--- | TODO: docs
+-- | Attach the surrounding 'DefinitionContext'\'s /inside-edge/ scope
+-- to @s@. Unlike 'addUseSiteScope', this uses the same shared scope
+-- for every macro output in the context (it's allocated once per
+-- 'newDefinitionContext') — that's what Racket's inside-edge scope
+-- means.
+--
+-- Outside a definition context this is a no-op.
 --
 -- @since 1.0.0
-scopeId :: Bool -> Scope -> Identifier -> Expand Identifier
-scopeId False sc id = pure (identifierScope Nothing sc id)
-scopeId True  sc id = do
-  ph <- view expandCurrentPhase
-  pure (identifierScope (Just ph) sc id)
+addInsideEdgeScope :: Syntax -> Expand Syntax
+addInsideEdgeScope s =
+  view expandDefinitionContext >>= \case
+    Nothing -> pure s
+    Just dc -> pure (syntaxScope Nothing (defctx_inside_edge_scope dc) s)
 
--- | TODO: docs
+-- | Attach the surrounding 'DefinitionContext'\'s /outside-edge/
+-- scope to @s@. Like 'addInsideEdgeScope', this is one shared
+-- per-context scope (allocated by 'newDefinitionContext') applied to
+-- every input form of the context before the pre-pass walks it.
+--
+-- Outside a definition context this is a no-op.
 --
 -- @since 1.0.0
-scopeSyntax :: Bool -> Scope -> Syntax -> Expand Syntax
-scopeSyntax False sc id = pure (syntaxScope Nothing sc id)
-scopeSyntax True  sc id = do
-  ph <- view expandCurrentPhase
-  pure (syntaxScope (Just ph) sc id)
+addOutsideEdgeScope :: Syntax -> Expand Syntax
+addOutsideEdgeScope s =
+  view expandDefinitionContext >>= \case
+    Nothing -> pure s
+    Just dc -> pure (syntaxScope Nothing (defctx_outside_edge_scope dc) s)
 
 -- | Flip a macro-introduction or use-site scope on a 'Syntax' object.
 -- These scopes are plain scopes per the scope-sets model and Racket's
@@ -312,8 +346,8 @@ expanderReadFile s = do
 -- | TODO: docs
 --
 -- @since 1.0.0
-expanderEval :: Maybe Scope -> SExp -> Expand Datum
-expanderEval sc expr = do
+expanderEval :: SExp -> Expand Datum
+expanderEval expr = do
   writeLog (LogEnterEval expr)
 
   config <- viewEvalConfig
@@ -328,17 +362,13 @@ expanderEval sc expr = do
       val <$ writeLog (LogExitEval val)
   where
     useEvalState :: Expand EvalState
-    useEvalState =
-      EvalState
-        <$> use expandBindingStore
-        <*> use expandIntroScopes
-        <*> use expandUsageScopes
+    useEvalState = EvalState <$> use expandBindingStore
 
     viewEvalConfig :: Expand EvalConfig
     viewEvalConfig = do
       env <- use expandEnvironment
       ph  <- view expandCurrentPhase
-      pure (EvalConfig env ph sc)
+      pure (EvalConfig env ph)
 
     evalToExpandError :: EvalError -> ExpandError
     evalToExpandError (EvalNotBound exn) = ExpandNotBound exn
@@ -438,20 +468,22 @@ dispatchTransformer val stx = do
   expand [syntax| (?transformer ?stx) |]
 
 applyTransformer :: Lambda -> Syntax -> Expand Syntax
-applyTransformer t stx = do
+applyTransformer t stx = withIntroScope \introScope -> do
   writeLog (LogEnterMacro stx)
 
-  introScope <- newIntroScope
-  introStx   <- flipSyntax introScope stx
+  introStx <- flipSyntax introScope stx
 
-  -- In a definition context, we need use-site scopes
-  usageStx <- maybeCreateUseSiteScope introStx
+  -- Use-site scope: a no-op outside a definition context. Inside one,
+  -- attaches a fresh scope phase-independently and records it in the
+  -- enclosing DefinitionContext's accumulator so the matching prune
+  -- step at define-binders can find it.
+  usageStx <- addUseSiteScope introStx
 
   transformed <- do
     writeLog (LogEnterMacroExpand usageStx)
 
     expr   <- expanderParse [syntax| (?t:lam ?stx) |]
-    result <- expanderEval (Just introScope) expr
+    result <- expanderEval expr
 
     case result of
       DatumStx stx' -> do
@@ -461,46 +493,25 @@ applyTransformer t stx = do
         error ("macro expansion did not return a syntax object")
         -- throwError (ErrorBadSyntax _ usageStx)
 
-  -- Flip the introduction scope after the transformer has been applied.
+  -- Flip the introduction scope back out of the result.
   resultStx <- flipSyntax introScope transformed
 
-  -- In a definition context, we need to add the inside-edge scope to
-  -- any expansion result
-  postStx <- maybeCreateInsideEdgeScope resultStx
+  -- Inside-edge scope: stamps the macro output with the enclosing
+  -- DefinitionContext's shared scope (not freshly minted). Subsequent
+  -- definitions in this context look up against this scope, which is
+  -- the Racket semantics from internal-definition-context-inside-edge.
+  postStx <- addInsideEdgeScope resultStx
 
   writeLog (LogExitMacro resultStx)
 
   pure postStx
-  where
-    maybeCreateUseSiteScope :: Syntax -> Expand Syntax
-    maybeCreateUseSiteScope s = do
-      ctx <- view expandContext
-      if ctx == ContextDefinition
-        then do
-          usageScope <- newUsageScope
-          -- Use-site scopes are plain scopes (per the scope-sets paper
-          -- §4.2 and Racket's use-site implementation): attached
-          -- phase-independently so the later prune-on-binder step
-          -- works correctly at every phase.
-          pure (syntaxScope Nothing usageScope s)
-        else pure s
-
-    maybeCreateInsideEdgeScope :: Syntax -> Expand Syntax
-    maybeCreateInsideEdgeScope s = do
-      ctx <- view expandContext
-      if ctx == ContextDefinition
-        then do
-          usageScope <- newUsageScope
-          scopeSyntax True usageScope s
-        else pure s
 
 applyRenameTransformer :: Identifier -> Syntax -> Expand Syntax
-applyRenameTransformer id stx = do
-  introScope <- newIntroScope
+applyRenameTransformer id stx = withIntroScope \introScope ->
   -- Intro scopes are plain scopes: attach phase-independently so the
   -- corresponding flip removes them at every phase.
   let introId = identifierScope Nothing introScope id
-  pure (syntaxTrackOrigin [syntax| ?introId:id |] stx)
+   in pure (syntaxTrackOrigin [syntax| ?introId:id |] stx)
 
 expand :: Syntax -> Expand Syntax
 expand stx = do
@@ -545,13 +556,13 @@ expandLambda ids expr = do
   sc <- newScope
 
   bindings <- for ids \id -> do
-    id'  <- scopeId True sc id
+    let id' = identifierScope Nothing sc id
     bind <- newBinding id'
     pure (bind, id')
 
   withVarTransformers bindings do
-    let args = map snd bindings
-    stx'   <- scopeSyntax True sc expr
+    let args   = map snd bindings
+        stx'   = syntaxScope Nothing sc expr
     result <- expand stx'
     pure [syntax| (lambda (?args:id ...) ?result) |]
 
@@ -571,25 +582,25 @@ expandLetRec transExprs valExprs expr = do
 
   guardExpressionContext
     let stxs = map (\(id, stx) -> [syntax| (?id:id ?stx) |]) transExprs
-        vals = map (\(id, stx) -> [syntax| (?id:id ?stx) |]) transExprs
+        vals = map (\(id, stx) -> [syntax| (?id:id ?stx) |]) valExprs
      in [syntax| (letrec-syntaxes+values (?stxs ...) (?vals ...) ?expr) |]
 
   sc <- newScope
 
   valBinds <- for valExprs \(valId, valExpr) -> do
-    valId'   <- scopeId True sc valId
-    valExpr' <- scopeSyntax True sc valExpr
-    binder   <- newBinding valId'
-    pure (valId, valExpr', binder)
+    let valId'   = identifierScope Nothing sc valId
+        valExpr' = syntaxScope     Nothing sc valExpr
+    binder <- newBinding valId'
+    pure (valId', valExpr', binder)
 
   transBinds <- for transExprs \(transId, transExpr) -> do
-    transId'   <- scopeId True sc transId
-    transExpr' <- scopeSyntax True sc transExpr
-    binder     <- newBinding transId'
+    let transId'   = identifierScope Nothing sc transId
+        transExpr' = syntaxScope     Nothing sc transExpr
+    binder <- newBinding transId'
 
     nextPhase do
       sexp  <- expandAndParseSyntax transExpr'
-      value <- expanderEval Nothing sexp
+      value <- expanderEval sexp
       pure (binder, value)
 
   let letBinds = map (\(idt, _, b) -> (b, idt)) valBinds
@@ -600,10 +611,10 @@ expandLetRec transExprs valExprs expr = do
         result <- expand valExpr
         pure [syntax| (?valId:id ?result) |]
 
-      scoped <- scopeSyntax True sc expr
+      let scoped = syntaxScope Nothing sc expr
       result <- expand scoped
 
-      pure [syntax| (letrec (?vals ...) ?result) |]
+      pure [syntax| (letrec-values (?vals ...) ?result) |]
 
 -- | TODO: docs
 --
@@ -621,7 +632,11 @@ expandQuoteSyntax expr = do
   guardExpressionContext [syntax| (quote-syntax ?expr) |]
 
   phase  <- view expandCurrentPhase
-  intros <- use expandIntroScopes
+  -- Intro scopes now live in the Reader, so only the currently
+  -- in-flight macro expansions contribute. Siblings (other macro
+  -- invocations whose dynamic extent does not enclose this
+  -- quote-syntax) can no longer leak their intro scopes here.
+  intros <- view expandIntroScopes
   let result = syntaxPrune phase intros expr
 
   pure [syntax| (quote-syntax ?result) |]
@@ -632,25 +647,31 @@ expandBegin :: NonEmpty Syntax -> Expand Syntax
 expandBegin stxs = do
   guardExpressionContext [syntax| (begin ?stxs ...+) |]
 
-  outsideEdgeScope <- newScope
-  outsideEdgeStxs  <- traverse (scopeSyntax True outsideEdgeScope) stxs
+  -- Enter a single internal-definition context that owns the outside-
+  -- and inside-edge scopes plus the use-site box. Both the pre-pass
+  -- (preExpandBegin) and the actual expansion pass share this
+  -- context, so macros expanded in either see the same use-site
+  -- accumulator and edge scopes.
+  withDefinitionContext do
+    outsideEdgeStxs <- traverse addOutsideEdgeScope stxs
 
-  begin <- preExpandBegin outsideEdgeStxs
+    begin <- preExpandBegin outsideEdgeStxs
 
-  insideEdgeScope <- newScope
+    let stx = beginToLetRec begin
+    result <- expand stx
+    addInsideEdgeScope result
 
-  let stx = beginToLetRec begin
-  result <- expand stx
-  scopeSyntax True insideEdgeScope result
-
+-- | Categorize the forms of a begin body into definitions/expressions.
+-- Runs inside the enclosing definition context allocated by the
+-- caller (typically 'expandBegin' or a module-body pass); does not
+-- introduce its own.
 preExpandBegin :: NonEmpty Syntax -> Expand Begin
 preExpandBegin stxs = do
   mut <- newMutVar []
 
-  withDefinitionContext do
-    for_ (NonEmpty.init stxs) \stx -> case stx of
-      [syntax| (?id:id ?_ ...) |] -> preExpandIdApplication mut id stx
-      _ -> modifyMutVar' mut (++ [DefnExpr stx])
+  for_ (NonEmpty.init stxs) \stx -> case stx of
+    [syntax| (?id:id ?_ ...) |] -> preExpandIdApplication mut id stx
+    _ -> modifyMutVar' mut (++ [DefnExpr stx])
 
   defns <- readMutVar mut
   pure (Begin defns (NonEmpty.last stxs))
@@ -742,7 +763,12 @@ partialExpandModuleBegin = loop
           TfmCore CoreDefine -> do
             Define id rhs <- matchDefine body
 
-            uscps <- use expandUsageScopes
+            -- Read use-site scopes from the enclosing definition
+            -- context's accumulator, not from a global. Siblings
+            -- (other macro invocations) can no longer contribute
+            -- here.
+            dc    <- useDefinitionContext "partialExpandModuleBegin/CoreDefine"
+            uscps <- readUseSiteScopes dc
             phase <- view expandCurrentPhase
 
             let usageId = identifierPrune phase uscps id
@@ -754,15 +780,28 @@ partialExpandModuleBegin = loop
           TfmCore CoreDefineSyntax -> do
             DefineSyntax id rhs <- matchDefineSyntax body
 
-            uscps <- use expandUsageScopes
+            dc    <- useDefinitionContext "partialExpandModuleBegin/CoreDefineSyntax"
+            uscps <- readUseSiteScopes dc
             phase <- view expandCurrentPhase
 
             let usageId = identifierPrune phase uscps id
             binder <- newBinding usageId
-            expr <- nextPhase do
+            -- The transformer RHS is an expression, not a module-body
+            -- form. Switch to an expression context (mirrors how the
+            -- `define` branch in `expandModuleBeginExprs` wraps its
+            -- RHS in `withExpressionContext`).
+            expr <- nextPhase $ withExpressionContext do
               sexp  <- expandAndParseSyntax rhs
-              value <- expanderEval Nothing sexp
+              value <- expanderEval sexp
               pure (binder, value)
+
+            -- Register the transformer under its binder gensym in the
+            -- compile-time environment so subsequent macro calls (which
+            -- resolve the identifier to the binder, then look it up via
+            -- `lookupEnvironment`) actually find the transformer.
+            -- Parallel to how the `CoreDefine` branch above inserts
+            -- into `expandEnvironment`.
+            expandEnvironment %= Environment.insert binder (TfmDatum (snd expr))
 
             expandNamespace . nsTransformer phase (id ^. idtSymbol) .= Just (TfmDatum (snd expr))
 
@@ -785,12 +824,23 @@ partialExpandModuleBegin = loop
           TfmCore CoreModule -> do
             bodies' <- loop bodies
             pure (body : bodies')
+          TfmDatum _ -> do
+            -- A macro use at the module-body level. Apply the
+            -- transformer (which gives us the macro's output syntax)
+            -- and re-feed it through this same loop so that, if it
+            -- produced a `(define …)` or `(define-syntax …)` form,
+            -- it gets registered as a binding. Mirrors Racket's
+            -- iterating partial-expand of module bodies.
+            expanded <- dispatch transformer stx
+            loop (expanded : bodies)
           _ -> do
-            -- Save for next module body expansion pass.
+            -- Other transformer cases (none reachable today). Pass
+            -- through to the next pass.
             bodies' <- loop bodies
             pure (body : bodies')
       _ -> do
-        -- Save for next module body expansion pass.
+        -- Not an identifier-headed application; preserve for the
+        -- expression pass.
         bodies' <- loop bodies
         pure (body : bodies')
 
@@ -828,6 +878,17 @@ expandModuleExports original = do
 
           (specs', bodies') <- loop (specs ++ exs) bodies
           pure (specs', body : bodies')
+      -- `define` and `define-syntax` were already fully processed by
+      -- partialExpandModuleBegin (define-syntax) or
+      -- expandModuleBeginExprs (define). Don't re-expand them — that
+      -- would route through dispatchCoreForm where both currently
+      -- bottom with `throwBadSyntax`.
+      [syntax| (define        ?_dId  ?_dRhs) |] -> do
+        (specs', bodies') <- loop specs bodies
+        pure (specs', body : bodies')
+      [syntax| (define-syntax ?_dsId ?_dsRhs) |] -> do
+        (specs', bodies') <- loop specs bodies
+        pure (specs', body : bodies')
       [syntax| ?stx |] -> do
         body' <- expand stx
         (specs', bodies') <- loop specs bodies

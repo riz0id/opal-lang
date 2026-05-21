@@ -39,10 +39,10 @@ import Opal.Common.Symbol
   , symbolToString, symbolHead
   )
 import Opal.Quasi
-import Opal.Reader (Reader (..), ReaderError (..), readEnclosed, readSymbol,)
+import Opal.Reader (Reader (..), ReaderError (..), readEnclosed, readSymbol, skipSpace)
 
 import Text.Megaparsec
-import Text.Megaparsec.Char (space, string)
+import Text.Megaparsec.Char (string)
 
 -- Basic Operations ------------------------------------------------------------
 
@@ -65,13 +65,13 @@ runQuasiReader input = do
 -- @since 1.0.0
 readQExp :: Reader QExp
 readQExp = do
-  space
+  skipSpace
   qexp <- choice
     [ try readQuasiBool
     , readQuasiVar
     , readQuasiList
     ]
-  qexp <$ space
+  qexp <$ skipSpace
 
 -- | TODO: docs
 --
@@ -92,7 +92,7 @@ readQuasiBool = do
 -- @since 1.0.0
 readQuasiVar :: Reader QExp
 readQuasiVar = do
-  s <- readSymbol <* space
+  s <- readSymbol <* skipSpace
 
   ellipsis <- readEllipsisClass
 

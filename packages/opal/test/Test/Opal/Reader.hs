@@ -48,6 +48,16 @@ runTestReader input expected = do
       annotate ("Lexical info: " ++ show (stx ^. syntaxInfo))
       withFrozenCallStack (stx === expected)
 
+-- | Assert that the reader accepts @input@ without checking the
+-- resulting 'Syntax' shape. Useful when source positions in the
+-- expected value would otherwise be tedious to construct (e.g. list
+-- forms with comment whitespace).
+runTestReaderOk :: HasCallStack => String -> PropertyT IO ()
+runTestReaderOk input =
+  case runStringReader "Test.Opal.Reader" input of
+    Left  exn -> withFrozenCallStack (failWith Nothing (errorBundlePretty exn))
+    Right _   -> pure ()
+
 --------------------------------------------------------------------------------
 
 testTree :: TestTree
@@ -68,4 +78,25 @@ testTree =
     , testCase "i32" do
         i32 <- forAll (Gen.int32 (Range.constant 0 maxBound))
         runTestReader (show i32) (SyntaxI32 i32 testSyntaxInfo)
+    , testGroup "comments"
+        [ testUnit "line comment before token" do
+            -- Token is past the comment, so its source position
+            -- differs from testSyntaxInfo's default — use the
+            -- position-agnostic helper.
+            runTestReaderOk "; greeting\n#t"
+        , testUnit "trailing line comment" do
+            runTestReader "#t ; trailing\n" (SyntaxB True testSyntaxInfo)
+        , testUnit "double-semicolon line comment (convention)" do
+            runTestReaderOk ";; convention\n#t"
+        , testUnit "block comment" do
+            runTestReaderOk "#| ignored |# #t"
+        , testUnit "nested block comment" do
+            runTestReaderOk "#| outer #| inner |# still outer |# #t"
+        , testUnit "comment between list elements" do
+            -- The load-bearing case: confirms readEnclosed's internal
+            -- whitespace skippers also handle comments.
+            runTestReaderOk "(#t ;; mid-list\n #f)"
+        , testUnit "comment immediately before close paren" do
+            runTestReaderOk "(#t #| block |#)"
+        ]
     ]

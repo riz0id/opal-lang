@@ -105,6 +105,7 @@ library
     Opal.Evaluator.State
     Opal.Expander
     Opal.Expander.Config
+    Opal.Expander.DefinitionContext
     Opal.Expander.Error
     Opal.Expander.Log
     Opal.Expander.Match

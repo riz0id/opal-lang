@@ -22,7 +22,6 @@ module Opal.Evaluator.Config
     -- ** Lenses
   , evalEnvironment
   , evalCurrentPhase
-  , evalCurrentScope
   )
 where
 
@@ -33,11 +32,16 @@ import GHC.Generics (Generic)
 import Opal.Binding.Environment (Environment)
 import Opal.Common.Lens (defineLenses)
 import Opal.Common.Phase (Phase)
-import Opal.Common.Scope (Scope)
 
 -- EvalConfig ------------------------------------------------------------------
 
 -- | 'EvalConfig' is the read-only state of the 'Eval' monad.
+--
+-- Note: @eval_current_scope :: Maybe Scope@ was removed. It was set
+-- by @Opal.Expander.expanderEval@ from the surrounding macro's intro
+-- scope but never read by any evaluator code path — same dead-state
+-- pattern as the previously-removed @eval_intro_scopes@\/@eval_usage_scopes@.
+-- See @review\/issues\/closed\/eval-current-scope-is-dead-state.md@.
 --
 -- @since 1.0.0
 data EvalConfig = EvalConfig
@@ -47,9 +51,6 @@ data EvalConfig = EvalConfig
     -- from the evaluator's binding store.
   , eval_current_phase :: {-# UNPACK #-} !Phase
     -- ^ The current evaluator phase for syntax forms.
-  , eval_current_scope :: Maybe Scope
-    -- ^ An optional introduction scope. When given, this scope will be used for
-    -- local expansion.
   }
   deriving (Generic, Show)
 
@@ -57,4 +58,4 @@ $(defineLenses ''EvalConfig)
 
 -- | @since 1.0.0
 instance Default EvalConfig where
-  def = EvalConfig def def def
+  def = EvalConfig def def

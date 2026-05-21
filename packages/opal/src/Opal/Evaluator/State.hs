@@ -21,8 +21,6 @@ module Opal.Evaluator.State
     EvalState (..)
     -- ** Lenses
   , evalBindingStore
-  , evalIntroScopes
-  , evalUsageScopes
   )
 where
 
@@ -32,20 +30,21 @@ import GHC.Generics (Generic)
 
 import Opal.Binding.BindingStore (BindingStore)
 import Opal.Common.Lens (defineLenses)
-import Opal.Common.ScopeSet (ScopeSet)
 
 -- EvalState -------------------------------------------------------------------
 
 -- | 'EvalState' is the mutable state of the 'Eval' monad.
 --
+-- Note: @eval_intro_scopes@ and @eval_usage_scopes@ were removed as
+-- part of the macro-state refactor. They were declared but never
+-- read; the expander threaded them in via @expanderEval@ but the
+-- evaluator never consumed them. See
+-- @plans\/expander-macro-state-refactor.md@.
+--
 -- @since 1.0.0
 data EvalState = EvalState
   { eval_binding_store :: BindingStore
   -- ^ A binding store that is threaded through evaluation and expansion.
-  , eval_intro_scopes  :: ScopeSet
-  -- ^ The set of scopes to be pruned at syntax forms.
-  , eval_usage_scopes  :: ScopeSet
-  -- ^ A subset of the current expansion context's use-stire scopes.
   }
   deriving (Eq, Generic, Ord, Show)
 
@@ -53,4 +52,4 @@ $(defineLenses ''EvalState)
 
 -- | @since 1.0.0
 instance Default EvalState where
-  def = EvalState def def def
+  def = EvalState def

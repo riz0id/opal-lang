@@ -32,6 +32,8 @@ module Opal.Reader
     -- * Readers
   , readSExpOpal
   , readSyntaxOpal
+    -- ** Whitespace
+  , skipSpace
     -- ** Combinators
   , readSymbol
   , tokenSyntax
@@ -89,8 +91,9 @@ import Text.Megaparsec
   , takeWhile1P
   , try
   )
-import Text.Megaparsec.Char (space, string)
-import Text.Megaparsec.Char.Lexer (decimal, float)
+import Text.Megaparsec.Char (space1, string)
+import Text.Megaparsec.Char.Lexer (decimal, float, skipBlockCommentNested, skipLineComment)
+import Text.Megaparsec.Char.Lexer qualified as L
 
 -- Reader - Basic Operations ---------------------------------------------------
 
@@ -130,6 +133,22 @@ runTextReader ::
   Either (ParseErrorBundle Text ReaderError) Syntax
 runTextReader = parse (unReader readSyntaxOpal)
 
+-- Readers - Whitespace --------------------------------------------------------
+
+-- | The Opal reader's whitespace + comments consumer. Skips:
+--
+--   * Unicode whitespace.
+--   * Line comments starting with @;@ (extending to end-of-line). The
+--     conventional double-@;;@ form is just two line comments back-to-back.
+--   * Nestable block comments delimited by @#|@ and @|#@.
+--
+-- Used in place of 'Text.Megaparsec.Char.space' everywhere the original
+-- bare whitespace skipper appeared.
+--
+-- @since 1.0.0
+skipSpace :: Reader ()
+skipSpace = L.space space1 (skipLineComment ";") (skipBlockCommentNested "#|" "|#")
+
 -- Readers ---------------------------------------------------------------------
 
 -- | The complete Opal syntax object reader. This is the reader used to read a
@@ -137,14 +156,14 @@ runTextReader = parse (unReader readSyntaxOpal)
 --
 -- @since 1.0.0
 readSExpOpal :: Reader SExp
-readSExpOpal = space *> readSExp <* eof
+readSExpOpal = skipSpace *> readSExp <* eof
 
 -- | The complete Opal syntax object reader. This is the reader used to read a
 -- source files into a syntax object.
 --
 -- @since 1.0.0
 readSyntaxOpal :: Reader Syntax
-readSyntaxOpal = space *> readSyntax <* eof
+readSyntaxOpal = skipSpace *> readSyntax <* eof
 
 -- Readers - Combinators -------------------------------------------------------
 
@@ -172,8 +191,8 @@ tokenSyntax = liftA2 datumToSyntax readerSyntaxInfo
 readEnclosed :: Reader a -> Reader a
 readEnclosed reader =
   choice
-    [ between (single '[' *> space) (single ']' *> space) reader
-    , between (single '(' *> space) (single ')' *> space) reader
+    [ between (single '[' *> skipSpace) (single ']' *> skipSpace) reader
+    , between (single '(' *> skipSpace) (single ')' *> skipSpace) reader
     ]
 
 -- Readers - S-Expressions -----------------------------------------------------
@@ -186,7 +205,7 @@ readSExp = do
     , readSExpVar
     , readSExpApp
     ]
-  sexp <$ space
+  sexp <$ skipSpace
 
 -- | Read a 'Datum' as a s-expression.
 readSExpVal :: Reader SExp
@@ -214,7 +233,7 @@ readDatum = do
     , readDatumList readDatum
     , readDatumSymbol
     ]
-  val <$ space
+  val <$ skipSpace
 
 -- | Read a single 32-bit boolean 'Datum'.
 --
@@ -287,7 +306,7 @@ readSyntax = do
     , readSyntaxSymbol
     , readSyntaxList readSyntax
     ]
-  stx <$ space
+  stx <$ skipSpace
 
 -- | Read a single 32-bit boolean 'Syntax'.
 --
