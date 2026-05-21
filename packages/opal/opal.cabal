@@ -144,6 +144,22 @@ library
     Opal.Writer.Doc
     Opal.Writer.Monad
 
+executable opal
+  import:         common
+  hs-source-dirs: app
+  main-is:        Main.hs
+
+  ghc-options:
+    -threaded
+    -rtsopts
+    "-with-rtsopts=-N"
+
+  build-depends:
+    , data-default
+    , opal
+    , optparse-applicative
+    , text
+
 benchmark opal-bench
   import:         common
   hs-source-dirs: bench

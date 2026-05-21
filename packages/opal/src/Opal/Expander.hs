@@ -22,9 +22,16 @@ module Opal.Expander
     -- ** Basic Operations
   , runExpand
   , runExpandFile
+  , runExpandFileWith
   , runExpandAndParseFile
+  , runExpandAndParseFileWith
   , runExpandSyntax
+  , runExpandSyntaxWith
   , runExpandAndParseSyntax
+  , runExpandAndParseSyntaxWith
+    -- ** Module execution
+  , runOpalFile
+  , evaluateModuleDefines
     -- ** Macro-state scoping
   , withIntroScope
   , addUseSiteScope
@@ -103,39 +110,62 @@ import Data.Functor (void)
 
 -- Expand - Basic Operations ----------------------------------------------------
 
--- | TODO: docs
+-- | Read, expand, and return the resulting 'Syntax' along with the
+-- final 'ExpandState'. The state is returned (not printed) so callers
+-- like the @opal@ CLI can choose what to surface.
+--
+-- Uses the default 'ExpandConfig'. To customise the module search
+-- path (or any other config), call 'runExpandFileWith'.
 --
 -- @since 1.0.0
-runExpandFile :: FilePath -> IO Syntax
-runExpandFile filepath = do
-  runFileReader filepath >>= \case
-    Left  exn -> fail (errorBundlePretty exn)
-    Right stx -> do
-      (m, st) <- runExpandSyntax (Just filepath) stx
-      putStrLn (show st)
-      pure m
+runExpandFile :: FilePath -> IO (Syntax, ExpandState)
+runExpandFile = runExpandFileWith def
 
--- | TODO: docs
+-- | Like 'runExpandFile' but with a user-supplied 'ExpandConfig'.
+-- 'expand_file_path' is overridden to the file being read.
 --
 -- @since 1.0.0
-runExpandAndParseFile :: FilePath -> IO SExp
-runExpandAndParseFile filepath = do
+runExpandFileWith :: ExpandConfig -> FilePath -> IO (Syntax, ExpandState)
+runExpandFileWith config filepath = do
+  runFileReader filepath >>= \case
+    Left  exn -> fail (errorBundlePretty exn)
+    Right stx ->
+      runExpandSyntaxWith (config { expand_file_path = Just filepath }) stx
+
+-- | Read, expand, parse, and return the resulting 'SExp' along with
+-- the final 'ExpandState'.
+--
+-- @since 1.0.0
+runExpandAndParseFile :: FilePath -> IO (SExp, ExpandState)
+runExpandAndParseFile = runExpandAndParseFileWith def
+
+-- | Like 'runExpandAndParseFile' but with a user-supplied
+-- 'ExpandConfig'.
+--
+-- @since 1.0.0
+runExpandAndParseFileWith :: ExpandConfig -> FilePath -> IO (SExp, ExpandState)
+runExpandAndParseFileWith config filepath = do
   runFileReader filepath >>= \case
     Left  exn -> fail (errorBundlePretty exn)
     Right stx -> do
-      (expr, st) <- runExpandAndParseSyntax stx
-      putStrLn (show st)
-      pure expr
+      let config' = config { expand_file_path = Just filepath }
+      runExpandAndParseSyntaxWith config' stx
 
 -- | TODO: docs
 --
 -- @since 1.0.0
 runExpandSyntax :: Maybe FilePath -> Syntax -> IO (Syntax, ExpandState)
-runExpandSyntax filepath stx = do
+runExpandSyntax filepath stx =
+  runExpandSyntaxWith (def { expand_file_path = filepath }) stx
 
-  let config :: ExpandConfig
-      config = def { expand_file_path = filepath }
-
+-- | Like 'runExpandSyntax' but with a fully user-supplied
+-- 'ExpandConfig'. On expansion failure, prints the error and calls
+-- 'exitFailure' — to recover programmatically, use 'runExpand'
+-- directly from "Opal.Expander.Monad".
+--
+-- @since 1.0.0
+runExpandSyntaxWith :: ExpandConfig -> Syntax -> IO (Syntax, ExpandState)
+runExpandSyntaxWith config stx = do
   (result, logs) <- runExpand config def do
     let stx' = syntaxScope Nothing def stx
     expandNamespace %= declareModule "#%core" (newCoreModule def) False
@@ -155,9 +185,21 @@ runExpandSyntax filepath stx = do
 --
 -- @since 1.0.0
 runExpandAndParseSyntax :: Syntax -> IO (SExp, ExpandState)
-runExpandAndParseSyntax stx = do
-  let stx' = syntaxScope Nothing def stx
-  (result, logs) <- runExpand def def (expandAndParseSyntax stx')
+runExpandAndParseSyntax = runExpandAndParseSyntaxWith def
+
+-- | Like 'runExpandAndParseSyntax' but with a user-supplied
+-- 'ExpandConfig'.
+--
+-- @since 1.0.0
+runExpandAndParseSyntaxWith :: ExpandConfig -> Syntax -> IO (SExp, ExpandState)
+runExpandAndParseSyntaxWith config stx = do
+  (result, logs) <- runExpand config def do
+    -- Match `runExpandSyntaxWith`'s setup: declare and import
+    -- @#%core@ so the form's identifiers resolve.
+    let stx' = syntaxScope Nothing def stx
+    expandNamespace %= declareModule "#%core" (newCoreModule def) False
+    void (importModule def "#%core")
+    expandAndParseSyntax stx'
 
   putDocLn 80 (display logs)
 
@@ -166,6 +208,57 @@ runExpandAndParseSyntax stx = do
       putDocLn 80 (display exn)
       exitFailure
     Right rx  -> pure rx
+
+-- Expand - Module execution ---------------------------------------------------
+
+-- | Expand a file as a module, evaluate each runtime @(define ...)@
+-- in the module's body, and return the resulting bindings.
+--
+-- Imports and macro definitions execute as part of expansion; only
+-- the @(define id rhs)@ forms remain as deferred work, since the
+-- expander stores them as @TfmDatum (DatumStx <expanded-rhs>)@
+-- without forcing the RHS. This function does the final parse +
+-- eval step for each.
+--
+-- Bindings are returned in 'Symbol'-sorted order (the underlying
+-- @Map@'s natural order).
+--
+-- @since 1.0.0
+runOpalFile :: ExpandConfig -> FilePath -> IO [(Symbol, Datum)]
+runOpalFile config filepath = do
+  (_, st) <- runExpandFileWith config filepath
+  evaluateModuleDefines config st
+
+-- | Given a captured 'ExpandState' (typically from 'runExpandFile'),
+-- evaluate each user @define@ in the module's namespace and return
+-- the @(name, value)@ pairs.
+--
+-- Re-enters 'runExpand' with the captured state so 'expanderParse'
+-- and 'expanderEval' have access to the binding store + environment
+-- the module was expanded against.
+--
+-- @since 1.0.0
+evaluateModuleDefines :: ExpandConfig -> ExpandState -> IO [(Symbol, Datum)]
+evaluateModuleDefines config st = do
+  let defs    :: Map.Map Symbol Transformer
+      defs    = view (expandNamespace . nsDefinitions def . defnsVariables) st
+
+      entries :: [(Symbol, Syntax)]
+      entries = [(sym, stx) | (sym, TfmDatum (DatumStx stx)) <- Map.toList defs]
+
+  (result, _logs) <- runExpand config st $ traverse evalOne entries
+
+  case result of
+    Left exn -> do
+      putDocLn 80 (display exn)
+      exitFailure
+    Right (rs, _) -> pure rs
+  where
+    evalOne :: (Symbol, Syntax) -> Expand (Symbol, Datum)
+    evalOne (sym, stx) = do
+      sexp <- expanderParse stx
+      val  <- expanderEval sexp
+      pure (sym, val)
 
 -- Expand - Config Operations --------------------------------------------------
 
