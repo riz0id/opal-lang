@@ -38,6 +38,8 @@ module Opal.Syntax
   , datumSyntax
     -- * Lambda
   , Lambda (..)
+    -- ** Basic Operations
+  , duplicateArguments
     -- ** Optics
   , lambdaArgs
   , lambdaBody
@@ -285,6 +287,15 @@ instance Show Lambda where
   show = Doc.pretty . display
 
 -- Lambda - Basic Operations ---------------------------------------------------
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+duplicateArguments :: [Symbol] -> Bool
+duplicateArguments []           = False
+duplicateArguments (arg : args)
+  | arg `elem` args = True
+  | otherwise       = duplicateArguments args
 
 -- Lambda - Optics -------------------------------------------------------------
 

@@ -18,7 +18,7 @@
 --
 -- @since 1.0.0
 module Opal.Common.Unicode
-  ( ord1
+  ( ord1, test
   , ord2
   , ord3
   , ord4
@@ -36,10 +36,14 @@ module Opal.Common.Unicode
   , sizeofUtf8OffForeignPtr
   , sizeofUtf8OffPtr
   )
-where 
+where
 
 import Data.Primitive.Ptr (readOffPtr)
 import Data.Word (Word8)
+import Data.Text.Internal (Text (..))
+import Data.Text qualified as Text
+import Data.Text.Array (Array (..))
+import Data.Text.Array qualified as Array
 
 import GHC.Exts (Char (..), Char#, Word#, Word8#, Int#, Int (..))
 import GHC.Exts qualified as GHC
@@ -51,8 +55,23 @@ import Opal.Common.TH (staticListE)
 
 import System.IO.Unsafe (unsafeDupablePerformIO)
 import Foreign.ForeignPtr (ForeignPtr, withForeignPtr)
+import Data.Foldable (for_)
+import qualified Data.Primitive.ByteArray as ByteArray
+import Text.Printf (printf)
 
 --------------------------------------------------------------------------------
+
+test :: IO ()
+test = do
+  let text@(Text xs _ _) = Text.pack "a€b€c"
+
+  let n = case xs of ByteArray xs# -> I# (GHC.sizeofByteArray# xs#)
+
+  putStrLn ("size of \"" ++ show text ++ "\": " ++ show n)
+
+  for_ [0 .. n - 1] \(i :: Int) -> do
+    let x = Array.unsafeIndex xs i
+    printf "byte #%d: 0x%x\n" i x
 
 wordToChar# :: Word# -> Char#
 wordToChar# x# = GHC.chr# (GHC.word2Int# x#)
@@ -77,13 +96,13 @@ ord1# x# = GHC.wordToWord8# (charToWord# x#)
 --
 -- @since 1.0.0
 ord2 :: Char -> (Word8, Word8)
-ord2 (C# x#) = case ord2# x# of 
+ord2 (C# x#) = case ord2# x# of
   (# b0#, b1# #) -> (W8# b0#, W8# b1#)
 {-# INLINE ord2 #-}
 
 -- TODO: docs
 ord2# :: Char# -> (# Word8#, Word8# #)
-ord2# (charToWord# -> x#) = 
+ord2# (charToWord# -> x#) =
   let !b0# = GHC.or# 0xc0## (GHC.and# 0xff## (GHC.uncheckedShiftRL# x# 6#))
       !b1# = GHC.or# 0x80## (GHC.and# 0x3f## (GHC.uncheckedShiftRL# x# 0#))
    in (# GHC.wordToWord8# b0#, GHC.wordToWord8# b1# #)
@@ -92,7 +111,7 @@ ord2# (charToWord# -> x#) =
 --
 -- @since 1.0.0
 ord3 :: Char -> (Word8, Word8, Word8)
-ord3 (C# x#) = case ord3# x# of 
+ord3 (C# x#) = case ord3# x# of
   (# b0#, b1#, b2# #) -> (W8# b0#, W8# b1#, W8# b2#)
 {-# INLINE ord3 #-}
 
@@ -108,7 +127,7 @@ ord3# (charToWord# -> x#) =
 --
 -- @since 1.0.0
 ord4 :: Char -> (Word8, Word8, Word8, Word8)
-ord4 (C# x#) = case ord4# x# of 
+ord4 (C# x#) = case ord4# x# of
   (# b0#, b1#, b2#, b3# #) -> (W8# b0#, W8# b1#, W8# b2#, W8# b3#)
 {-# INLINE ord4 #-}
 
@@ -125,7 +144,7 @@ ord4# (charToWord# -> x#) =
 --
 -- @since 1.0.0
 writeUtf8OffPtr :: Ptr Word8 -> Char -> IO (Ptr Word8)
-writeUtf8OffPtr ptr c 
+writeUtf8OffPtr ptr c
   | c >= '\x10000' = do
     let !(cu1, cu2, cu3, cu4) = ord4 c
     writeWord8OffPtr ptr 0 cu1
@@ -144,7 +163,7 @@ writeUtf8OffPtr ptr c
     writeWord8OffPtr ptr 0 cu1
     writeWord8OffPtr ptr 1 cu2
     pure (plusPtr ptr 2)
-  | otherwise = do 
+  | otherwise = do
     let !cu1 = ord1 c
     writeWord8OffPtr ptr 0 cu1
     pure (plusPtr ptr 1)
@@ -206,31 +225,31 @@ chr4# x# y# z# w# =
    in wordToChar# (b0# `GHC.or#` b1# `GHC.or#` b2# `GHC.or#` b3#)
 
 readUtf8OffPtr :: Ptr Word8 -> IO (Char, Int)
-readUtf8OffPtr ptr = do 
+readUtf8OffPtr ptr = do
   cu1 <- readWord8OffPtr ptr 0
-  case sizeofLeaderUtf8 cu1 of 
+  case sizeofLeaderUtf8 cu1 of
     4 -> do
       cu2 <- readWord8OffPtr ptr 1
       cu3 <- readWord8OffPtr ptr 2
       cu4 <- readWord8OffPtr ptr 3
       pure (chr4 cu1 cu2 cu3 cu4, 4)
-    3 -> do 
+    3 -> do
       cu2 <- readWord8OffPtr ptr 1
       cu3 <- readWord8OffPtr ptr 2
       pure (chr3 cu1 cu2 cu3, 3)
-    2 -> do 
+    2 -> do
       cu2 <- readWord8OffPtr ptr 1
       pure (chr2 cu1 cu2, 2)
-    _ -> 
+    _ ->
       pure (chr1 cu1, 1)
 {-# INLINEABLE readUtf8OffPtr #-}
 
--- | \(O(n)\). TODO: docs 
+-- | \(O(n)\). TODO: docs
 --
 -- @since 1.0.0
 copyStringUtf8ToPtr :: Ptr Word8 -> String -> IO ()
 copyStringUtf8ToPtr _   []       = pure ()
-copyStringUtf8ToPtr ptr (x : xs) = do 
+copyStringUtf8ToPtr ptr (x : xs) = do
   ptr' <- writeUtf8OffPtr ptr x
   copyStringUtf8ToPtr ptr' xs
 
@@ -239,20 +258,20 @@ copyStringUtf8ToPtr ptr (x : xs) = do
 utf8LeaderLengthTable :: Ptr Int
 utf8LeaderLengthTable = Ptr $(staticListE @Int [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 3, 3, 4, 0])
 
--- | Given a valid UTF-8 leader byte, obtain the number of UTF-8 code units 
--- used to encode the UTF-8 character. 
+-- | Given a valid UTF-8 leader byte, obtain the number of UTF-8 code units
+-- used to encode the UTF-8 character.
 --
 -- >>> sizeofLeaderUtf8 0x61 -- The UTF-8 representation of 'a'
 -- 1
 --
 -- @since 1.0.0
 sizeofLeaderUtf8 :: Word8 -> Int
-sizeofLeaderUtf8 (W8# x#) = 
+sizeofLeaderUtf8 (W8# x#) =
   let !offset# = GHC.word2Int# (GHC.word8ToWord# (GHC.uncheckedShiftRLWord8# x# 3#))
       result   = readOffPtr utf8LeaderLengthTable (I# offset#)
    in unsafeDupablePerformIO result
 
--- | Obtain the number of UTF-8 code units that are required to encode the 
+-- | Obtain the number of UTF-8 code units that are required to encode the
 -- given 'Char' in UTF-8
 --
 -- @since 1.0.0
@@ -268,41 +287,41 @@ sizeofCharUtf8# x# =
       !cmp2# = GHC.geChar# x# '\x10000'#
    in cmp0# GHC.+# cmp1# GHC.+# cmp2# GHC.+# 1#
 
--- | \(O(n)\). Obtain the number of bytes required to store the given 'String' 
+-- | \(O(n)\). Obtain the number of bytes required to store the given 'String'
 -- in UTF-8.
 --
 -- @since 1.0.0
-sizeofStringUtf8 :: String -> Int 
-sizeofStringUtf8 = foldl (\n c -> n + sizeofCharUtf8 c) 0 
+sizeofStringUtf8 :: String -> Int
+sizeofStringUtf8 = foldl (\n c -> n + sizeofCharUtf8 c) 0
 
--- | \(O(n)\). Similar to 'sizeofUtf8OffPtr', but instead accepts a 'ForeignPtr' 
+-- | \(O(n)\). Similar to 'sizeofUtf8OffPtr', but instead accepts a 'ForeignPtr'
 -- as the pointer to the UTF-8 string.
 --
 -- @since 1.0.0
 sizeofUtf8OffForeignPtr :: ForeignPtr Word8 -> Int -> IO Int
 sizeofUtf8OffForeignPtr src len = withForeignPtr src (`sizeofUtf8OffPtr` len)
 
--- | \(O(n)\). Count the number of UTF-8 code units that are encoded off a 
--- pointer to a UTF-8 string. 
+-- | \(O(n)\). Count the number of UTF-8 code units that are encoded off a
+-- pointer to a UTF-8 string.
 --
 -- @since 1.0.0
-sizeofUtf8OffPtr :: 
+sizeofUtf8OffPtr ::
   -- | Pointer to a UTF-8 encoded string.
-  Ptr Word8 -> 
+  Ptr Word8 ->
   -- | The size of the UTF-8 string in bytes.
-  Int -> 
+  Int ->
   -- | Returns size of the UTF-8 string in characters.
   IO Int
 sizeofUtf8OffPtr src len = do
-  let end :: Ptr Word8 
+  let end :: Ptr Word8
       end = plusPtr src len
-      
+
   let run :: Int -> Ptr Word8 -> IO Int
-      run n ptr 
+      run n ptr
         | ptr < end = do
-          leader <- readWord8OffPtr ptr 0 
+          leader <- readWord8OffPtr ptr 0
           let i = sizeofLeaderUtf8 leader
           run (i + n) (ptr `plusPtr` i)
         | otherwise = pure n
 
-  run 0 src 
+  run 0 src

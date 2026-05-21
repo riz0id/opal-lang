@@ -130,7 +130,7 @@ inserts (Just ph) scps (ScopeInfo gscps mscps)
   | ScopeSet.null scps = ScopeInfo gscps mscps
   | otherwise =
     let scps' :: ScopeSet
-        scps' = ScopeSet.intersection scps gscps
+        scps' = ScopeSet.difference scps gscps
      in if ScopeSet.null scps'
           then ScopeInfo gscps mscps
           else ScopeInfo gscps (MultiScope.inserts ph scps' mscps)

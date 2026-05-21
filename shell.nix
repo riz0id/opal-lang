@@ -1,14 +1,15 @@
+{ pkgs ? import nix/pkgs.nix }:
 
-with import nix/pkgs.nix;
+let
+  hpkgs = pkgs.haskell.packages.ghc96;
+in hpkgs.shellFor {
+  packages = hpkgs: [ hpkgs.opal ];
 
-mkShell {
-  buildInputs = [
-    haskellPackages.eff
+  nativeBuildInputs = [
+    pkgs.haskell.compiler.ghc96
+    hpkgs.cabal-install
+    hpkgs.haskell-language-server
+    hpkgs.ghcid
+    pkgs.hlint
   ];
 }
-# pkgs.haskellPackages.opal.env.overrideAttrs (self: {
-#   buildInputs = self.buildInputs ++ (with pkgs; [
-#     # haskellPackages.ghc962
-#     # haskellPackages.haskell-language-server
-#   ]);
-# })

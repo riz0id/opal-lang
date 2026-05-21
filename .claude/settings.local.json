@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cabal build *)",
+      "Read(//Users/jake/.ghcup/bin/**)",
+      "Read(//nix/store/**)",
+      "Bash(nix-shell --run 'ghc --numeric-version')",
+      "Bash(nix develop *)",
+      "Bash(nix-shell --run \"cabal build opal\")",
+      "Bash(nix-shell -p cabal-install --run \"cabal build opal\")",
+      "Bash(nix-build --no-out-link '<nixpkgs>' -A cabal-install)",
+      "Bash(nix-shell --run 'PATH=__CMDSUB_OUTPUT__/bin:$PATH cabal build opal')",
+      "Bash(nix-shell --run \"ghc --version\")",
+      "Bash(nix-shell --run \"haskell-language-server-wrapper --version\")",
+      "Bash(nix-shell --run \"cabal clean && cabal build opal\")"
+    ]
+  }
+}

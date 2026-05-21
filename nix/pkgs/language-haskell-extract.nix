@@ -4,9 +4,9 @@ mkDerivation {
   pname = "language-haskell-extract";
   version = "0.2.3";
   src = fetchgit {
-    url = "https://github.com/finnsson/template-helper";
-    sha256 = "1wyrm7qyq2ia888fvhshqkl7fwh9b7h880fh3xgz0vv1r6d40nyd";
-    rev = "9047b3793aac904052dcb3f1704b53d6d41d2374";
+    url = "https://github.com/riz0id/template-helper";
+    sha256 = "0gv4b2qd0ld9b8fm7i3xx5rq4i1pvs4vxmad6njzr319y64ndz7z";
+    rev = "3aa67d5cb316c12cd8f22384cbb9d5999a49598e";
     fetchSubmodules = true;
   };
   libraryHaskellDepends = [ base regex-posix template-haskell ];

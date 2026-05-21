@@ -23,6 +23,9 @@ module Opal.Parser
   , runParseSyntax
     -- ** Parse Operations
   , parseSyntax
+  , parseLambda
+  , parseQuote
+  , parseQuoteSyntax
   , parseIdentifier
     -- * ParseConfig
   , ParseConfig (..)
@@ -64,40 +67,53 @@ runParseSyntax c = runParse c . parseSyntax
 --
 -- @since 1.0.0
 parseSyntax :: Syntax -> Parse SExp
-parseSyntax stx@[syntax| () |] = do
-  throwError (ParseBadSyntax (ErrorBadSyntax CoreApp stx))
-parseSyntax stx@[syntax| (?fun:id ?stxs ...) |] = do
-  fun' <- parseIdentifier fun
-  if| fun' `eqSymbol` "lambda" -> case [syntax| (?stxs ...) |] of
-      [syntax| ((?args:id ...) ?body) |] -> parseLambda args body
-      _                                  -> throwError (ParseBadSyntax (ErrorBadSyntax CoreLambda stx))
-    | fun' `eqSymbol` "quote" -> case [syntax| (?stxs ...) |] of
-        [syntax| (?arg) |] -> pure (SVal (syntaxToDatum arg))
-        _                  -> throwError (ParseBadSyntax (ErrorBadSyntax CoreQuote stx))
-    | fun' `eqSymbol` "quote-syntax" -> case [syntax| (?stxs ...) |] of
-      [syntax| (?arg) |] -> pure (SVal (DatumStx arg))
-      _                  -> throwError (ParseBadSyntax (ErrorBadSyntax CoreSyntax stx))
-    | otherwise -> do
-      idt'  <- parseIdentifier fun
-      stxs' <- traverse parseSyntax stxs
-      pure (SApp (SVar idt' :| stxs'))
-parseSyntax [syntax| (?stxs ...+) |] = do
-  stxs' <- traverse parseSyntax stxs
-  pure (SApp stxs')
-parseSyntax [syntax| ?idt:id |] = do
-  s <- parseIdentifier idt
-  pure (SVar s)
-parseSyntax [syntax| ?stx |] = do
-  pure (SVal (syntaxToDatum stx))
+parseSyntax [syntax| (?stxs ...) |] = parseApplication stxs
+parseSyntax [syntax| ?idt:id     |] = fmap SVar (parseIdentifier idt)
+parseSyntax [syntax| ?stx        |] = pure (SVal (syntaxToDatum stx))
 
 -- | TODO: docs
 --
 -- @since 1.0.0
-parseLambda :: [Identifier] -> Syntax -> Parse SExp
-parseLambda args body = do
+parseApplication :: [Syntax] -> Parse SExp
+parseApplication []           = throwBadSyntax CoreApp [syntax| () |]
+parseApplication (stx : stxs) = case stx of
+  [syntax| ?id:id |] -> parseIdApplication id stxs
+  _                  -> fmap SApp (traverse parseSyntax (stx :| stxs))
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+parseIdApplication :: Identifier -> [Syntax] -> Parse SExp
+parseIdApplication id stxs =
+  parseIdentifier id >>= \case
+    "lambda"       -> parseLambda [syntax| (lambda ?stxs ...) |]
+    "quote"        -> parseQuote [syntax| (quote ?stxs ...) |]
+    "quote-syntax" -> parseQuoteSyntax [syntax| (quote-syntax ?stxs ...) |]
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+parseLambda :: Syntax -> Parse SExp
+parseLambda [syntax| (lambda (?args:id ...) ?body) |] = do
   args' <- traverse parseIdentifier args
   body' <- parseSyntax body
   pure (SVal (DatumLam (Lambda args' body')))
+parseLambda stx =
+  throwBadSyntax CoreLambda stx
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+parseQuote :: Syntax -> Parse SExp
+parseQuote [syntax| (quote ?stx) |] = pure (SVal (syntaxToDatum stx))
+parseQuote stx                      = throwBadSyntax CoreQuote stx
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+parseQuoteSyntax :: Syntax -> Parse SExp
+parseQuoteSyntax [syntax| (quote-syntax ?stx) |] = pure (SVal (DatumStx stx))
+parseQuoteSyntax stx                             = throwBadSyntax CoreSyntax stx
 
 -- | TODO: docs
 --

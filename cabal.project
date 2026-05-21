@@ -1,5 +1,5 @@
 
-with-compiler: ghc-9.6.2
+with-compiler: ghc-9.6.5
 
 jobs: $ncpus
 tests: True

@@ -24,12 +24,11 @@ where
 
 import Control.Lens ((^.))
 
-import Control.Monad (foldM)
 import Control.Monad.Except (MonadError(..))
 
 import Data.Set qualified as Set
 
-import Opal.Binding (Binding (..), bindingSymbol)
+import Opal.Binding (Binding (..), bindingScopes, bindingSymbol)
 import Opal.Binding.BindingStore (BindingStore, restrictBindings)
 import Opal.Common.Phase (Phase)
 import Opal.Common.ScopeSet (ScopeSet)
@@ -66,32 +65,62 @@ data ResolveError
 
 -- Binding Resolution ----------------------------------------------------------
 
--- | TODO: docs
+-- | Two scope sets are /incomparable/ under the subset order when neither is
+-- a subset of the other. Per Flatt's scope-sets model — and Racket's
+-- @resolve@ in @racket/src/expander/syntax/scope.rkt@ — two candidate
+-- bindings are ambiguous precisely when their scope sets are incomparable in
+-- this sense, not merely when they fail to intersect.
 --
 -- @since 1.0.0
-ambiguous :: ScopeSet -> ScopeSet -> Bool
-ambiguous a b = not (a `ScopeSet.intersects` b)
+incomparable :: ScopeSet -> ScopeSet -> Bool
+incomparable a b =
+  not (a `ScopeSet.isSubsetOf` b) && not (b `ScopeSet.isSubsetOf` a)
+
+-- | Accumulator for 'resolveId', mirroring Racket's @for*/fold@ over
+-- @[best-scopes best-binding]@:
+--
+-- * 'Best' 'Nothing' is the initial state, before any candidate has been
+--   seen.
+--
+-- * 'Best' ('Just' b) is the current "best so far" candidate: every
+--   candidate seen so far has scope set that is a subset of @b@'s.
+--
+-- * 'Ambiguous' bs is a non-empty list of pairwise-incomparable candidates
+--   that a later candidate may yet dominate. Only finalized as an ambiguity
+--   error if no later candidate is a superset of every element of @bs@.
+--
+-- @since 1.0.0
+data Acc
+  = Best !(Maybe Binding)
+  | Ambiguous ![Binding]
 
 -- | TODO: docs
 --
 -- @since 1.0.0
+-- TODO: rename the local @canidates@ -> @candidates@ typo at some point.
 resolveId :: Phase -> Identifier -> BindingStore -> Either ResolveError Symbol
 resolveId ph id store = do
   let s         = id ^. idtSymbol
   let scps      = ScopeInfo.lookup (Just ph) (id ^. idtScopes)
   let canidates = restrictBindings s scps store
-  case Set.maxView canidates of
-    Nothing          -> throwError (ResolveNotInScope (ErrorNotInScope id))
-    Just (elt, rest) -> do
-      result <- foldM run elt rest
-      pure (result ^. bindingSymbol)
+  case Set.foldl' step (Best Nothing) canidates of
+    Best Nothing  -> throwError (ResolveNotInScope (ErrorNotInScope id))
+    Best (Just b) -> pure (b ^. bindingSymbol)
+    Ambiguous bs  -> throwError (ResolveAmbiguous (ErrorAmbiguous id (reverse bs)))
   where
-    run :: Binding -> Binding -> Either ResolveError Binding
-    run b2@(Binding scps2 _) b1@(Binding scps1 _)
-      | scps1 `ambiguous` scps2 = throwError (ResolveAmbiguous (ErrorAmbiguous id [b1, b2]))
-      | otherwise               = pure (bestBinding b1 b2)
-
-    bestBinding :: Binding -> Binding -> Binding
-    bestBinding b1@(Binding scps1 _) b2@(Binding scps2 _)
-      | scps1 `ScopeSet.isSubsetOf` scps2 = b2
-      | otherwise                         = b1
+    step :: Acc -> Binding -> Acc
+    step (Best Nothing)     cand = Best (Just cand)
+    step (Best (Just best)) cand
+      | candScps `ScopeSet.isSubsetOf` bestScps = Best (Just best)
+      | bestScps `ScopeSet.isSubsetOf` candScps = Best (Just cand)
+      | incomparable bestScps candScps          = Ambiguous [cand, best]
+      | otherwise                               = Best (Just best)
+      where
+        bestScps = best ^. bindingScopes
+        candScps = cand ^. bindingScopes
+    step (Ambiguous ambs)   cand
+      | all (\b -> (b ^. bindingScopes) `ScopeSet.isSubsetOf` candScps) ambs
+                  = Best (Just cand)
+      | otherwise = Ambiguous (cand : ambs)
+      where
+        candScps = cand ^. bindingScopes

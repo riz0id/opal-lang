@@ -28,6 +28,8 @@ module Opal.Parser.Monad
   , parseCurrentPhase
     -- * ParseError
   , ParseError (..)
+    -- ** Basic Operations
+  , throwBadSyntax
   )
 where
 
@@ -39,11 +41,14 @@ import Control.Monad.Reader (MonadReader (..), ReaderT (..))
 
 import Data.Function ((&))
 
-import Opal.Error (ErrorAmbiguous (..), ErrorBadSyntax)
 import Opal.Parser.Config
   ( ParseConfig (..)
   , parseBindingStore
   , parseCurrentPhase
+  )
+import Opal.Parser.Error
+  ( ParseError (..)
+  , throwBadSyntax
   )
 import Opal.Resolve
   ( ResolveError(..)
@@ -90,15 +95,3 @@ runParse c parse =
   unParse parse
     & flip runReaderT c
     & runExceptT
-
--- ParseError ------------------------------------------------------------------
-
--- | TODO: docs
---
--- @since 1.0.0
-data ParseError
-  = ParseAmbiguous {-# UNPACK #-} !ErrorAmbiguous
-    -- ^ TODO: docs
-  | ParseBadSyntax {-# UNPACK #-} !ErrorBadSyntax
-    -- ^ TODO: docs
-  deriving (Show)

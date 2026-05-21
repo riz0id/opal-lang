@@ -14,6 +14,9 @@ mkDerivation {
   libraryHaskellDepends = [ base primitive ];
   testHaskellDepends = [ base hspec primitive ];
   testToolDepends = [ hspec-discover ];
+  enableLibraryProfiling = false;
+  jailbreak = true;
+  doCheck = false;
   homepage = "https://github.com/hasura/eff";
   license = lib.licenses.isc;
 }

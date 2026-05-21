@@ -25,6 +25,7 @@ import Test.Opal.Module qualified
 import Test.Opal.Syntax qualified
 import Test.Opal.Reader qualified
 import Test.Opal.Writer qualified
+import Test.Regression qualified
 
 --------------------------------------------------------------------------------
 
@@ -39,4 +40,5 @@ testTree =
     , Test.Opal.Syntax.testTree
     , Test.Opal.Reader.testTree
     , Test.Opal.Writer.testTree
+    , Test.Regression.testTree
     ]
