@@ -64,7 +64,7 @@ module Opal.Module
 
 import Control.Applicative ((<|>))
 
-import Control.Lens (Lens', lens, over, view, (.~), (^.), at)
+import Control.Lens (Lens', lens, over, set, view, (.~), (^.), at)
 
 import Data.Default (Default (..))
 import Data.Function ((&))
@@ -184,13 +184,27 @@ nsDefinitions ph = nsPhases . lens getter setter
     setter :: Map Phase Definitions -> Definitions -> Map Phase Definitions
     setter phs defns = Map.insertWith ((<>)) ph defns phs
 
--- | TODO: docs
+-- | A lens onto an exported binding by phase + name. Bindings live
+-- in /two/ maps at each phase — 'defnsVariables' (runtime values
+-- defined via @define@) and 'defnsTransformers' (compile-time
+-- macros defined via @define-syntax@). For import-time lookup we
+-- need to find either, so this getter consults transformers first
+-- (the more specific case) and falls back to variables.
+--
+-- The setter prefers the variable slot (matching the prior
+-- phase==0 behaviour) — the lens is used read-only by the expander
+-- in practice, but a well-defined setter keeps the abstraction
+-- consistent.
 --
 -- @since 1.0.0
 nsBinding :: Phase -> Symbol -> Lens' Namespace (Maybe Transformer)
-nsBinding ph id
-  | ph == def = nsVariable ph id
-  | otherwise = nsTransformer ph id
+nsBinding ph id = lens getter setter
+  where
+    getter ns = case view (nsTransformer ph id) ns of
+      Just t  -> Just t
+      Nothing -> view (nsVariable ph id) ns
+
+    setter ns mt = set (nsVariable ph id) mt ns
 
 -- | TODO: docs
 --

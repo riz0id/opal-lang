@@ -30,6 +30,7 @@ module Opal.Expander.Config
   , expandFilePath
   , expandDefinitionContext
   , expandIntroScopes
+  , expandModuleSearchPath
   )
 where
 
@@ -120,6 +121,12 @@ data ExpandConfig = ExpandConfig
     -- automatically restored on exit. This is what
     -- @expandQuoteSyntax@ prunes against — only the macros currently
     -- on the call stack contribute, not every macro ever expanded.
+  , expand_module_search_path :: [FilePath]
+    -- ^ Directories searched when resolving an @(import foo)@ to a
+    -- file path. The directory of the currently-expanding file
+    -- ('expand_file_path') is implicitly searched first; this list
+    -- is consulted in order after that. Default: @["lib"]@ so
+    -- @lib/<name>.opal@ resolves from any working directory.
   }
   deriving (Generic)
 
@@ -138,4 +145,4 @@ instance Default ExpandConfig where
 --
 -- @since 1.0.0
 defaultExpandConfig :: ExpandConfig
-defaultExpandConfig = ExpandConfig def def def Nothing def
+defaultExpandConfig = ExpandConfig def def def Nothing def ["lib"]

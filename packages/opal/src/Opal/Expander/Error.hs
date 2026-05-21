@@ -73,6 +73,10 @@ data ExpandError
     -- ^ TODO: docs
   | ExpandNoModule {-# UNPACK #-} !ErrorNoModule
     -- ^ TODO: docs
+  | ExpandImportNotFound String
+    -- ^ An @(import foo)@ form named a module that couldn't be
+    -- located on disk. The 'String' is a message naming the
+    -- requested module and the directories searched.
   deriving (Show)
 
 -- | @since 1.0.0
@@ -82,6 +86,7 @@ instance Display ExpandError where
   display (ExpandNotBound x)   = display x
   display (ExpandBadSyntax x)  = display x
   display (ExpandNoModule x)   = display x
+  display (ExpandImportNotFound msg) = Doc.string ("import error: " ++ msg)
   display exn = case exn of
     ErrorBadContext stx ctxs ctx ->
       docExpandError (stx ^. syntaxInfo) "invalid expansion context"
@@ -118,8 +123,9 @@ instance Error ExpandError where
   errorCode (ExpandNotBound x)   = errorCode x
   errorCode (ExpandBadSyntax x)  = errorCode x
   errorCode (ExpandNoModule x)   = errorCode x
-  errorCode ErrorBadContext   {} = $(makeErrorCode "OPAL-10005" 'ErrorBadContext)
-  errorCode ExpandReaderError {} = $(makeErrorCode "OPAL-10006" 'ExpandReaderError)
+  errorCode ErrorBadContext      {} = $(makeErrorCode "OPAL-10005" 'ErrorBadContext)
+  errorCode ExpandReaderError    {} = $(makeErrorCode "OPAL-10006" 'ExpandReaderError)
+  errorCode ExpandImportNotFound {} = $(makeErrorCode "OPAL-10007" 'ExpandImportNotFound)
 
 -- ErrorBadSyntax - Basic Operations -------------------------------------------
 

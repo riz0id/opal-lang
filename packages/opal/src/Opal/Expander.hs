@@ -95,7 +95,8 @@ import System.Exit (exitFailure)
 import Text.Megaparsec (errorBundlePretty)
 import Control.Lens.Extras (is)
 import Opal.Module.Export
-import System.Environment.Blank (getExecutablePath)
+import System.Directory (doesDirectoryExist, doesFileExist)
+import System.FilePath (takeDirectory, (</>))
 import Control.Monad.Writer (tell)
 import qualified Data.Map.Strict as Map
 import Data.Functor (void)
@@ -874,7 +875,12 @@ partialExpandModuleBegin = loop
             for_ mods \mod -> do
               instantiateModule def mod
 
-            pure bodies
+            -- Recurse to partial-expand the remaining bodies in the
+            -- updated environment. Without this, forms after the
+            -- import (especially macro uses that depend on imported
+            -- transformers) never enter the iterating module-begin
+            -- loop -- they fall through to phase 3 unexpanded.
+            loop bodies
           TfmCore CoreExport -> do
             -- Save for final module body expander pass.
             bodies' <- loop bodies
@@ -993,29 +999,89 @@ importModule ph s
       expandModule (syntaxScope Nothing def stx)
 
     case result of
-      Left  exn      -> throwError exn
-      Right (mod, _) -> do
+      Left  exn        -> throwError exn
+      Right (mod, st') -> do
         tell logs
         expandNamespace . nsModuleDeclarations %= Map.insert s mod
+
+        -- Merge the imported module's expander environment into
+        -- ours. Exported macro bodies (SExp) reference gensyms that
+        -- live in the imported module's environment — primitives,
+        -- internal `let`-bindings, etc. Gensyms are allocated from
+        -- a process-global IORef, so there are no key collisions
+        -- across runExpand boundaries; this is a pure additive
+        -- merge.
+        expandEnvironment %= (<> view expandEnvironment st')
+
         instantiateModule def mod
         pure mod
 
--- | TODO: docs
+-- | Resolve a module name to a @.opal@ file on disk. Search order:
+--
+-- 1. The directory of the currently-expanding file
+--    ('expand_file_path'), if any.
+-- 2. Each directory in 'expand_module_search_path', in order.
+--
+-- Returns the first candidate that exists. Throws an
+-- 'ExpandImportNotFound' error if none of the candidates resolve to
+-- a readable file. The previous behaviour — falling back to
+-- 'getExecutablePath' when 'expand_file_path' was 'Nothing' — was
+-- always incorrect (the executable's directory has nothing to do
+-- with the user's source tree); it's preserved here only as a
+-- last-resort source for the relative-path computation when no
+-- search dirs are configured.
 --
 -- @since 1.0.0
 importFilePath :: Symbol -> Expand FilePath
 importFilePath s = do
-  rootFilePath <- getExpanderPath
-  let relativePath = symbolToString s ++ ".opal"
-  let rootDirPath  = reverse (dropWhile (/= '/') (reverse rootFilePath))
-  pure (rootDirPath ++ relativePath)
+  searchDirs <- buildSearchDirs
+  let candidates = map (</> relativePath) searchDirs
+  liftIO (firstExisting candidates) >>= \case
+    Just path -> pure path
+    Nothing   ->
+      throwError
+        $ ExpandImportNotFound
+        $ "module `" ++ symbolToString s ++ "` not found; searched: "
+       ++ show candidates
   where
-    getExpanderPath :: Expand FilePath
-    getExpanderPath = do
-      result <- view expandFilePath
-      case result of
-        Nothing       -> liftIO getExecutablePath
-        Just filepath -> pure filepath
+    relativePath :: FilePath
+    relativePath = symbolToString s ++ ".opal"
+
+    buildSearchDirs :: Expand [FilePath]
+    buildSearchDirs = do
+      mFilePath  <- view expandFilePath
+      configDirs <- view expandModuleSearchPath
+      case mFilePath of
+        Nothing ->
+          -- No file context (REPL-like). The configured dirs are
+          -- interpreted relative to the working directory.
+          pure configDirs
+        Just fp -> do
+          let fileDir = takeDirectory fp
+          -- For each configured (relative) dir, walk upward from the
+          -- file's directory looking for that dir as a subdirectory.
+          -- This finds a project-root `lib/` regardless of where the
+          -- expander was invoked from.
+          walked <- liftIO (concat <$> traverse (findUpward fileDir) configDirs)
+          pure (fileDir : walked)
+
+    findUpward :: FilePath -> FilePath -> IO [FilePath]
+    findUpward start dir = go start
+      where
+        go cur = do
+          let candidate = cur </> dir
+          exists <- doesDirectoryExist candidate
+          if exists
+            then pure [candidate]
+            else
+              let parent = takeDirectory cur
+               in if parent == cur then pure [] else go parent
+
+    firstExisting :: [FilePath] -> IO (Maybe FilePath)
+    firstExisting []       = pure Nothing
+    firstExisting (p : ps) = do
+      exists <- doesFileExist p
+      if exists then pure (Just p) else firstExisting ps
 
 -- | TODO: docs
 --

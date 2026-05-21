@@ -63,7 +63,14 @@ import Prelude hiding (filter, lookup, null)
 newtype Environment = Environment
   { getEnvironment :: Map Symbol Transformer }
   deriving stock   (Generic)
-  deriving newtype (Show)
+  deriving newtype (Show, Semigroup, Monoid)
+  -- ^ The 'Semigroup'\/'Monoid' instances come from 'Map's
+  -- left-biased union — entries from the LHS win on key collision.
+  -- This matches the import-merge semantics in
+  -- 'Opal.Expander.importModule' (importing module's bindings take
+  -- precedence over imported gensyms, though collisions don't
+  -- happen in practice — gensyms are globally unique via the
+  -- shared IORef in 'Opal.Common.Symbol.genSymSource').
 
 -- | 'Environment' defaults to 'empty'.
 --

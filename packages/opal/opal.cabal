@@ -68,7 +68,9 @@ library
     , containers
     , data-default
     , deepseq
+    , directory
     , eff
+    , filepath
     , ghc-compact
     , lens
     , megaparsec

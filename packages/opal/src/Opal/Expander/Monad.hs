@@ -40,6 +40,7 @@ module Opal.Expander.Monad
   , expandFilePath
   , expandDefinitionContext
   , expandIntroScopes
+  , expandModuleSearchPath
     -- * ExpandError
   , ExpandError (..)
     -- ** Basic Operations
@@ -96,6 +97,7 @@ import Opal.Expander.Config
   , expandFilePath
   , expandDefinitionContext
   , expandIntroScopes
+  , expandModuleSearchPath
   , expansionContextString
   , expansionContextSymbol
   )
