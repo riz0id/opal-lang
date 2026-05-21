@@ -110,6 +110,7 @@ library
     Opal.Expander.Match
     Opal.Expander.Monad
     Opal.Expander.State
+    Opal.Match
     Opal.Memory.Buffer
     Opal.Memory.ForeignPtr
     Opal.Memory.Ptr
@@ -120,6 +121,7 @@ library
     Opal.Module.Import
     Opal.Parser
     Opal.Parser.Config
+    Opal.Parser.Error
     Opal.Parser.Monad
     Opal.Quasi
     Opal.Quasi.Reader
@@ -160,47 +162,48 @@ benchmark opal-bench
 
   other-modules:
 
--- test-suite opal-test
---   import:         common
---   type:           exitcode-stdio-1.0
---   hs-source-dirs: test
---   main-is:        Test.hs
+test-suite opal-test
+  import:         common
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is:        Test.hs
 
---   default-extensions:
+  default-extensions:
 
---   ghc-options:
---     -threaded
---     -rtsopts
---     "-with-rtsopts=-N"
+  ghc-options:
+    -threaded
+    -rtsopts
+    "-with-rtsopts=-N"
 
---   build-depends:
---     , data-default
---     , hedgehog
---     , lens
---     , megaparsec
---     , opal
---     , tasty
---     , tasty-hedgehog
---     , text
+  build-depends:
+    , data-default
+    , hedgehog
+    , lens
+    , megaparsec
+    , opal
+    , tasty
+    , tasty-hedgehog
+    , text
 
---   other-modules:
---     Test.Core
---     Test.Gen
---     Test.Laws.Optics
---     Test.Opal
---     Test.Opal.Common
---     Test.Opal.Common.Symbol
---     Test.Opal.Common.Symbol.Gen
---     Test.Opal.Core.Gen
---     Test.Opal.Evaluator
---     Test.Opal.Expander
---     Test.Opal.Memory.Buffer
---     Test.Opal.Module
---     Test.Opal.Syntax
---     Test.Opal.Syntax.Gen
---     Test.Opal.Syntax.TH
---     Test.Opal.Syntax.Transformer.Gen
---     Test.Opal.Syntax.Value.Gen
---     Test.Opal.Quasi
---     Test.Opal.Writer
---     Test.Opal.Reader
+  other-modules:
+    Test.Core
+    Test.Gen
+    Test.Laws.Optics
+    Test.Opal
+    Test.Opal.Common
+    Test.Opal.Common.Symbol
+    Test.Opal.Common.Symbol.Gen
+    Test.Opal.Core.Gen
+    Test.Opal.Evaluator
+    Test.Opal.Expander
+    Test.Opal.Memory.Buffer
+    Test.Opal.Module
+    Test.Opal.Syntax
+    Test.Opal.Syntax.Gen
+    Test.Opal.Syntax.TH
+    Test.Opal.Syntax.Transformer.Gen
+    Test.Opal.Syntax.Value.Gen
+    Test.Opal.Quasi
+    Test.Opal.Writer
+    Test.Opal.Reader
+    Test.Regression

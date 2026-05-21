@@ -84,11 +84,15 @@ parseApplication (stx : stxs) = case stx of
 --
 -- @since 1.0.0
 parseIdApplication :: Identifier -> [Syntax] -> Parse SExp
-parseIdApplication id stxs =
-  parseIdentifier id >>= \case
+parseIdApplication id stxs = do
+  sym <- parseIdentifier id
+  case sym of
     "lambda"       -> parseLambda [syntax| (lambda ?stxs ...) |]
     "quote"        -> parseQuote [syntax| (quote ?stxs ...) |]
     "quote-syntax" -> parseQuoteSyntax [syntax| (quote-syntax ?stxs ...) |]
+    _              -> do
+      args <- traverse parseSyntax stxs
+      pure (SApp (SVar sym :| args))
 
 -- | TODO: docs
 --

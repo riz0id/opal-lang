@@ -83,7 +83,6 @@ import Opal.Module.Import
 import Opal.Module.Export
 import Opal.Writer (Display (..), (<+>))
 import Opal.Writer qualified as Doc
-import Opal.Syntax.Definition (Definition)
 import Opal.Syntax (Identifier, Syntax, syntaxScope, Datum (..))
 import Opal.Syntax.TH (syntax)
 import Opal.Syntax.Transformer (Transformer (..))
@@ -319,9 +318,9 @@ moduleBasePhase = moduleNamespace . nsBasePhase
 moduleBinding :: Phase -> Symbol -> Lens' Module (Maybe Transformer)
 moduleBinding ph id = moduleNamespace . nsBinding ph id
 
--- | Composite lens focusing on the @('moduleNamespace' . 'namespaceDefinitions')@
--- field of a 'Module'.
+-- | Composite lens focusing on the per-phase 'Definitions' map of a 'Module'
+-- (i.e. @'moduleNamespace' . 'nsPhases'@).
 --
 -- @since 1.0.0
-moduleDefinitions :: Lens' Module [(PhaseShift, Definition)]
-moduleDefinitions = moduleNamespace . undefined
+moduleDefinitions :: Lens' Module (Map Phase Definitions)
+moduleDefinitions = moduleNamespace . nsPhases

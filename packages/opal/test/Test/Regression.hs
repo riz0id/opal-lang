@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes       #-}
 {-# OPTIONS_HADDOCK show-extensions #-}
 
 -- |
@@ -17,12 +19,18 @@ module Test.Regression
   )
 where
 
-import Hedgehog (annotate, (===))
+import Data.Default (def)
+import Data.List.NonEmpty (NonEmpty (..))
+
+import Hedgehog (annotate, evalEither, evalIO, (===))
 
 import Opal.Common.Phase (Phase (..))
 import Opal.Common.Scope (Scope (..))
 import Opal.Common.ScopeSet qualified as ScopeSet
+import Opal.Parser (runParseSyntax)
+import Opal.Syntax (SExp (..))
 import Opal.Syntax.ScopeInfo qualified as ScopeInfo
+import Opal.Syntax.TH (syntax)
 
 import Test.Core (TestTree, testGroup, testUnit)
 
@@ -32,6 +40,7 @@ testTree :: TestTree
 testTree =
   testGroup "regression"
     [ scopeInfoInsertsIntersectionBug
+    , parserIdApplicationNonExhaustive
     ]
 
 -- | Regression tests for
@@ -78,4 +87,45 @@ scopeInfoInsertsIntersectionBug =
             lhs   = ScopeInfo.lookup (Just ph) info1
             rhs   = ScopeSet.union (ScopeInfo.lookup (Just ph) info0) scps
         lhs === rhs
+    ]
+
+-- | Regression tests for
+-- @review/issues/open/parser-id-application-non-exhaustive.md@.
+--
+-- The bug: @Opal.Parser.parseIdApplication@ matched only @lambda@,
+-- @quote@, and @quote-syntax@ with no fallthrough, so any other head
+-- identifier (including @letrec@ — which the expander itself emits —
+-- and any user-defined operator) caused a non-exhaustive-pattern
+-- runtime error. The fix adds a fallthrough that treats unrecognized
+-- heads as a generic 'SApp', making the parser total.
+parserIdApplicationNonExhaustive :: TestTree
+parserIdApplicationNonExhaustive =
+  testGroup "parser-id-application-non-exhaustive"
+    [ testUnit "parses unknown identifier applications as SApp" do
+        annotate "see review/issues/open/parser-id-application-non-exhaustive.md"
+        -- Pre-fix: the case match in parseIdApplication had no clause
+        -- for "foo", so this triggered Non-exhaustive patterns at
+        -- runtime. Post-fix: falls through to SApp.
+        let stx = [syntax| (foo bar) |]
+        result <- evalIO (runParseSyntax def stx)
+        sexp   <- evalEither result
+        sexp === SApp (SVar "foo" :| [SVar "bar"])
+
+    , testUnit "parses (letrec _) head without crashing" do
+        annotate "see review/issues/open/parser-id-application-non-exhaustive.md"
+        -- expandLetRec emits (letrec ...) as its output. The parser
+        -- must accept it (even though the SExp evaluator has no native
+        -- letrec yet — that is the separate "secondary issue" called
+        -- out in the issue file).
+        let stx = [syntax| (letrec x) |]
+        result <- evalIO (runParseSyntax def stx)
+        sexp   <- evalEither result
+        sexp === SApp (SVar "letrec" :| [SVar "x"])
+
+    , testUnit "parses (begin _) head without crashing" do
+        annotate "see review/issues/open/parser-id-application-non-exhaustive.md"
+        let stx = [syntax| (begin x) |]
+        result <- evalIO (runParseSyntax def stx)
+        sexp   <- evalEither result
+        sexp === SApp (SVar "begin" :| [SVar "x"])
     ]
