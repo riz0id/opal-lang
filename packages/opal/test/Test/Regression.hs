@@ -24,6 +24,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 
 import Hedgehog (annotate, evalEither, evalIO, (===))
 
+import Opal.Common.MultiScope qualified as MultiScope
 import Opal.Common.Phase (Phase (..))
 import Opal.Common.Scope (Scope (..))
 import Opal.Common.ScopeSet qualified as ScopeSet
@@ -41,6 +42,7 @@ testTree =
   testGroup "regression"
     [ scopeInfoInsertsIntersectionBug
     , parserIdApplicationNonExhaustive
+    , multiscopeDeleteNothingWipesMultiscope
     ]
 
 -- | Regression tests for
@@ -128,4 +130,62 @@ parserIdApplicationNonExhaustive =
         result <- evalIO (runParseSyntax def stx)
         sexp   <- evalEither result
         sexp === SApp (SVar "begin" :| [SVar "x"])
+    ]
+
+-- | Regression tests for
+-- @review/issues/open/multiscope-delete-nothing-wipes-multiscope.md@.
+--
+-- The bug: @MultiScope.delete Nothing@ and @MultiScope.deletes Nothing@
+-- folded onto the @empty@ accumulator instead of @mscp@, so the
+-- "delete from every phase" branch returned the empty 'MultiScope'
+-- for *any* input. This silently wiped per-phase scopes through
+-- @ScopeInfo.insert Nothing@ and @ScopeInfo.union@ — the
+-- phase-independent insert and union paths used by every
+-- @syntaxScope Nothing@ call. The fix threads @mscp@ through the
+-- fold.
+multiscopeDeleteNothingWipesMultiscope :: TestTree
+multiscopeDeleteNothingWipesMultiscope =
+  testGroup "multiscope-delete-nothing-wipes-multiscope"
+    [ testUnit "MultiScope.delete Nothing preserves unrelated per-phase scopes" do
+        annotate "see review/issues/open/multiscope-delete-nothing-wipes-multiscope.md"
+        let ph0 = Phase 0
+            ph1 = Phase 1
+            sc1 = Scope 4000
+            sc2 = Scope 4001
+            -- {0 -> {sc1}, 1 -> {sc2}}
+            mscp0 = MultiScope.insert ph1 sc2 (MultiScope.insert ph0 sc1 MultiScope.empty)
+            mscp1 = MultiScope.delete Nothing sc1 mscp0
+        -- Pre-fix: returns empty; sc2 is wiped along with sc1.
+        -- Post-fix: sc1 removed from phase 0; phase 1 still contains sc2.
+        MultiScope.member ph0 sc1 mscp1 === False
+        MultiScope.member ph1 sc2 mscp1 === True
+
+    , testUnit "MultiScope.deletes Nothing preserves unrelated per-phase scopes" do
+        annotate "see review/issues/open/multiscope-delete-nothing-wipes-multiscope.md"
+        let ph0 = Phase 0
+            ph1 = Phase 1
+            sc1 = Scope 4100
+            sc2 = Scope 4101
+            mscp0 = MultiScope.insert ph1 sc2 (MultiScope.insert ph0 sc1 MultiScope.empty)
+            mscp1 = MultiScope.deletes Nothing (ScopeSet.singleton sc1) mscp0
+        MultiScope.member ph0 sc1 mscp1 === False
+        MultiScope.member ph1 sc2 mscp1 === True
+
+    , testUnit "ScopeInfo.insert Nothing preserves per-phase scopes other than the inserted one" do
+        annotate "see review/issues/open/multiscope-delete-nothing-wipes-multiscope.md"
+        -- This is the reachable-caller witness: ScopeInfo.insert Nothing
+        -- calls MultiScope.delete Nothing on its per-phase store, which
+        -- pre-fix wiped the entire MultiScope. So any phase-1 scope
+        -- attached to a ScopeInfo was lost the moment any
+        -- phase-independent scope was added.
+        let ph        = Phase 1
+            scPhase   = Scope 4200   -- per-phase
+            scGlobal  = Scope 4201   -- about to add as global
+            info0     = ScopeInfo.insert (Just ph) scPhase ScopeInfo.empty
+            info1     = ScopeInfo.insert Nothing   scGlobal info0
+            lookupPh1 = ScopeInfo.lookup (Just ph) info1
+        -- The phase-1 scope must still be visible at phase 1.
+        ScopeSet.member scPhase  lookupPh1 === True
+        -- And the newly-added global scope is visible at every phase.
+        ScopeSet.member scGlobal lookupPh1 === True
     ]

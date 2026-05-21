@@ -159,7 +159,7 @@ flipScope ph sc = alter ph \case
 -- @since 1.0.0
 delete :: Maybe Phase -> Scope -> MultiScope -> MultiScope
 delete mph sc mscp = case mph of
-  Nothing -> foldr (\ph -> delete (Just ph) sc) empty (phases mscp)
+  Nothing -> foldr (\ph -> delete (Just ph) sc) mscp (phases mscp)
   Just ph -> alter ph (>>= update) mscp
   where
     update :: ScopeSet -> Maybe ScopeSet
@@ -175,7 +175,7 @@ deletes :: Maybe Phase -> ScopeSet -> MultiScope -> MultiScope
 deletes mph scps mscp
   | ScopeSet.null scps = mscp
   | otherwise          = case mph of
-    Nothing -> foldr (\ph -> deletes (Just ph) scps) empty (phases mscp)
+    Nothing -> foldr (\ph -> deletes (Just ph) scps) mscp (phases mscp)
     Just ph -> alter ph (>>= update) mscp
   where
     update :: ScopeSet -> Maybe ScopeSet
