@@ -12,7 +12,32 @@
 -- Stability   :  stable
 -- Portability :  non-portable (GHC extensions)
 --
--- TODO: docs
+-- Hand-rolled UTF-8 codec built on raw 'Ptr Word8' arenas. Distinct
+-- from "Data.Text.Encoding" (which is ByteString-shaped); this
+-- module trades the high-level @Text@\/@ByteString@ abstractions for
+-- direct pointer access and hand-unboxed primops.
+--
+-- Public API by area:
+--
+-- * /Encoding/ — 'ord1'\/'ord2'\/'ord3'\/'ord4' encode a 'Char' to a
+--   tuple of @Word8@s. Each is partial in its width (use
+--   'sizeofCharUtf8' to dispatch).
+--
+-- * /Decoding (safe)/ — 'chr1'\/'chr2'\/'chr3'\/'chr4' decode a
+--   sequence of @Word8@s back to a 'Maybe' 'Char'. Validates
+--   continuation bytes, rejects overlong encodings, surrogate code
+--   points, and out-of-Unicode-range code points.
+--
+-- * /Pointer-arena I\/O/ — 'readUtf8OffPtr' and 'writeUtf8OffPtr'
+--   are length-aware and refuse to step past their bounded region.
+--   'copyStringUtf8ToPtr' writes a 'String' end-to-end.
+--
+-- * /Width queries/ — 'sizeofLeaderUtf8',
+--   'sizeofCharUtf8', 'sizeofStringUtf8', and 'sizeofUtf8OffPtr'
+--   compute byte\/character widths without decoding.
+--
+-- The unchecked unboxed primops behind the safe APIs live in
+-- "Data.Unicode.Prim".
 --
 -- @since 1.0.0
 module Data.Unicode
@@ -62,14 +87,19 @@ import GHC.Word (Word8 (..))
 
 --------------------------------------------------------------------------------
 
--- | TODO: docs
+-- | Encode a code point in @U+0000..U+007F@ (ASCII) as a single
+-- UTF-8 byte. Calling this on a 'Char' outside the ASCII range
+-- produces the low byte of the code point, which is /not/ a valid
+-- 1-byte UTF-8 sequence — dispatch on 'sizeofCharUtf8' first, or
+-- use 'writeUtf8OffPtr' which handles dispatch.
 --
 -- @since 1.0.0
 ord1 :: Char -> Word8
 ord1 (C# x#) = W8# (ord1# x#)
 {-# INLINE ord1 #-}
 
--- | TODO: docs
+-- | Encode a code point in @U+0080..U+07FF@ as @(leader,
+-- continuation)@. Partial in width — see 'ord1' for the caveat.
 --
 -- @since 1.0.0
 ord2 :: Char -> (Word8, Word8)
@@ -77,7 +107,8 @@ ord2 (C# x#) = case ord2# x# of
   (# b0#, b1# #) -> (W8# b0#, W8# b1#)
 {-# INLINE ord2 #-}
 
--- | TODO: docs
+-- | Encode a code point in @U+0800..U+FFFF@ as @(leader, cont, cont)@.
+-- Partial in width — see 'ord1' for the caveat.
 --
 -- @since 1.0.0
 ord3 :: Char -> (Word8, Word8, Word8)
@@ -85,7 +116,9 @@ ord3 (C# x#) = case ord3# x# of
   (# b0#, b1#, b2# #) -> (W8# b0#, W8# b1#, W8# b2#)
 {-# INLINE ord3 #-}
 
--- | TODO: docs
+-- | Encode a code point in @U+10000..U+10FFFF@ as
+-- @(leader, cont, cont, cont)@. Partial in width — see 'ord1' for
+-- the caveat.
 --
 -- @since 1.0.0
 ord4 :: Char -> (Word8, Word8, Word8, Word8)

@@ -3,8 +3,16 @@ cabal-version: 3.4
 name:        unicode
 category:    Data
 version:     1.0.0
-synopsis:    TODO
-description: TODO
+synopsis:    Hand-rolled UTF-8 codec over raw pointer arenas.
+description:
+  A low-level UTF-8 encoding / decoding library built on
+  pinned-memory @Ptr Word8@ arenas with hand-unboxed GHC primops.
+  Distinct from @text@\/@bytestring@ — this library trades the
+  high-level abstractions for direct pointer access. Safe boxed
+  APIs validate continuation bytes, reject overlong / surrogate /
+  out-of-range code points, and bounds-check pointer reads.
+  Unchecked unboxed primops are exposed via @Data.Unicode.Prim@ for
+  callers that want the fast path.
 
 author:       jacob leach
 maintainer:   jacobleach@protonmail.com

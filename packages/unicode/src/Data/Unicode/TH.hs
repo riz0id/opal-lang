@@ -9,7 +9,12 @@
 -- Stability   :  stable
 -- Portability :  non-portable (GHC extensions)
 --
--- TODO: docs
+-- Template Haskell helpers for embedding static data at compile
+-- time. Currently exports 'staticListE' — a splice that compiles a
+-- @['Prim' a]@ list into a 'BytesPrimL' literal so the resulting
+-- pointer reaches into a static memory region in the executable
+-- image rather than re-allocating on each call. Used by
+-- "Data.Unicode" to back the UTF-8 leader-length lookup table.
 --
 -- @since 1.0.0
 module Data.Unicode.TH
@@ -43,7 +48,10 @@ nullForeignPtr = ForeignPtr GHC.nullAddr# FinalPtr
 
 --------------------------------------------------------------------------------
 
--- | TODO: docs
+-- | Splice a list of 'Prim' values into a 'BytesPrimL' literal. The
+-- list is allocated and serialised at compile time; the runtime
+-- value is a pointer to a static memory region embedded in the
+-- executable.
 --
 -- @since 1.0.0
 staticListE :: Prim a => [a] -> Q Exp
@@ -51,7 +59,9 @@ staticListE xs = do
   bytes <- TH.runIO (listToBytes xs)
   pure (LitE (BytesPrimL bytes))
 
--- | TODO: docs
+-- | Serialise a list of 'Prim' values into a 'Bytes' record by
+-- allocating a 'ForeignPtr' with proper alignment and writing each
+-- element in turn. Used by 'staticListE' at compile time.
 --
 -- @since 1.0.0
 listToBytes :: Prim a => [a] -> IO Bytes
