@@ -32,7 +32,6 @@ import Control.Monad.IO.Class (MonadIO(..))
 import Control.Monad.State (MonadState (..))
 
 import Data.Foldable (traverse_)
-import Data.Maybe (fromMaybe)
 
 import Text.Parse.Error
 import Text.Parse.Monad
@@ -51,11 +50,16 @@ consume = do
     Nothing      -> pure Nothing
     Just (c, s1) -> Just c <$ put s1
 
--- | TODO: docs
+-- | Consume one character or raise a 'ParseError' at end of input.
+-- Unlike 'consume' (which returns 'Nothing' at EOF), 'consume1' is
+-- intended for callers that require a character — it reports EOF
+-- explicitly via 'TokenEOF' rather than fabricating @\'\NUL\'@.
 --
 -- @since 1.0.0
 consume1 :: Parse Char
-consume1 = fmap (fromMaybe '\NUL') consume
+consume1 = consume >>= \case
+  Nothing -> throwError (newParseError mempty TokenEOF)
+  Just c  -> pure c
 
 -- | TODO: docs
 --

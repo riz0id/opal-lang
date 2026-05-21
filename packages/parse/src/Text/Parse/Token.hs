@@ -36,6 +36,10 @@ data Token
   -- ^ 'TokenSingle' is a token consisting a single character.
   | TokenString String
   -- ^ 'TokenString' is a token consisting of a string of characters.
+  | TokenEOF
+  -- ^ 'TokenEOF' represents the end of input. Distinct from any
+  -- character (including @\'\NUL\'@) so that EOF can be surfaced in
+  -- error reports without collapsing into a literal-character match.
   | Tokens [Token]
   -- ^ 'Tokens' is a sequence of tokens.
   deriving (Eq, Ord)
@@ -69,6 +73,10 @@ instance Semigroup Token where
   Tokens toks1     <> Tokens toks2     = Tokens (toks1 ++ toks2)
   tok1             <> Tokens toks2     = Tokens (tok1 : toks2)
   Tokens toks1     <> tok2             = Tokens (toks1 ++ [tok2])
+  -- EOF combines with single chars / strings by becoming a Tokens
+  -- list (EOF cannot meaningfully fuse into a string).
+  TokenEOF         <> tok2             = Tokens [TokenEOF, tok2]
+  tok1             <> TokenEOF         = Tokens [tok1, TokenEOF]
 
 -- | The empty 'Token' is an empty sequence of tokens
 --
@@ -84,6 +92,7 @@ instance Monoid Token where
 instance Show Token where
   show (TokenSingle c) = show c
   show (TokenString s) = s
+  show TokenEOF        = "<end of input>"
   show (Tokens toks)   = show toks
 
 -- Token - Basic Operations ----------------------------------------------------
