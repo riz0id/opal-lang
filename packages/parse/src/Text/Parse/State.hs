@@ -9,7 +9,10 @@
 -- Stability   :  stable
 -- Portability :  non-portable (GHC extensions)
 --
--- TODO: docs
+-- The parser state — a 'Text.Parse.Buffer.Buffer' plus a byte offset
+-- into it. 'consumeParseState' reads one UTF-8 character from the
+-- buffer at the current offset and returns the decoded char along
+-- with the advanced state, or 'Nothing' at end of input.
 --
 -- @since 1.0.0
 module Text.Parse.State

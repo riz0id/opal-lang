@@ -10,7 +10,12 @@
 -- Stability   :  stable
 -- Portability :  non-portable (GHC extensions)
 --
--- TODO: docs
+-- Tokens used in parse-error messages. A 'Token' is either a single
+-- character, a literal string, a special 'TokenEOF' marker for end of
+-- input, or a sequence ('Tokens') of nested tokens. The 'Semigroup'
+-- instance fuses adjacent character\/string tokens into a single
+-- string where possible and falls back to a 'Tokens' sequence for
+-- mixed cases.
 --
 -- @since 1.0.0
 module Text.Parse.Token

@@ -9,7 +9,11 @@
 -- Stability   :  stable
 -- Portability :  non-portable (GHC extensions)
 --
--- TODO: docs
+-- The 'Parse' monad — @ExceptT ParseError (StateT ParseState IO)@.
+-- The 'Alternative' instance implements backtracking '<|>': on
+-- failure of the left branch, state is restored before trying the
+-- right; errors from both branches accumulate via 'ParseError's
+-- 'Semigroup'.
 --
 -- @since 1.0.0
 module Text.Parse.Monad

@@ -9,7 +9,12 @@
 -- Stability   :  stable
 -- Portability :  non-portable (GHC extensions)
 --
--- TODO: docs
+-- Parse error type. A 'ParseError' carries two 'Set's of 'Token's:
+-- the tokens the parser /expected/ and the tokens it /received/.
+-- The 'Semigroup' instance unions both sets, so alternatives
+-- accumulate expected-token sets when multiple branches fail — used
+-- by 'Text.Parse.Monad.Alternative' \'s '<|>' to build a useful
+-- diagnostic without losing information from earlier branches.
 --
 -- @since 1.0.0
 module Text.Parse.Error

@@ -9,7 +9,32 @@
 -- Stability   :  stable
 -- Portability :  non-portable (GHC extensions)
 --
--- TODO: docs
+-- Public combinator surface for @Text.Parse@ — a hand-rolled
+-- in-memory parser-combinator library built on pinned-memory
+-- buffers ('Text.Parse.Buffer.Buffer'). Distinct from Megaparsec
+-- (which @Opal.Reader@ uses): @Text.Parse@ does its own buffer
+-- management with raw pointer ops and a custom error model
+-- ('Text.Parse.Error.ParseError' carries expected\/received 'Token'
+-- sets rather than position-stack).
+--
+-- The combinator set is the standard parser-combinator zoo:
+--
+-- * Character primitives — 'consume', 'consume1', 'single',
+--   'string', 'satisfy', 'anyChar', 'char', 'oneOf', 'noneOf'.
+-- * Character classes — 'digit', 'letter', 'alphaNum', 'space'.
+-- * Sequencing — 'many', 'some', 'optional', 'choice', 'between',
+--   'sepBy', 'sepBy1', 'endBy', 'manyTill'.
+-- * Lookahead\/non-consuming — 'try', 'eof', 'lookAhead',
+--   'notFollowedBy'.
+--
+-- The 'Parse' monad's 'Alternative' instance ('Text.Parse.Monad')
+-- provides backtracking '<|>' that restores state on failure; use
+-- 'try' to backtrack past arbitrary consumed input.
+--
+-- The input model is all-in-memory: 'parse' loads the entire input
+-- string into a 'Buffer' upfront. Streaming\/chunked input is a
+-- deferred design concern — see
+-- @review\/issues\/closed\/parse-no-streaming-full-input-required.md@.
 --
 -- @since 1.0.0
 module Text.Parse
