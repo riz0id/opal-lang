@@ -19,7 +19,7 @@ module Text.Parse.Error
     newParseError,
     -- ** Lenses
     parseErrorExpected,
-    parseErrorRecieved,
+    parseErrorReceived,
   )
 where
 
@@ -37,10 +37,10 @@ import Text.Parse.Token
 -- @since 1.0.0
 data ParseError = ParseError
   { parse_error_expected :: Set Token
-  -- ^ The tokens that were expected to be recieved at the point of the
+  -- ^ The tokens that were expected to be received at the point of the
   -- 'ParseError'.
-  , parse_error_recieved :: Set Token
-  -- ^ The tokens that were actually recieved at the point of the 'ParseError'.
+  , parse_error_received :: Set Token
+  -- ^ The tokens that were actually received at the point of the 'ParseError'.
   }
   deriving (Eq, Show)
   -- Ord intentionally not derived: the natural lexicographic order
@@ -65,14 +65,14 @@ instance Semigroup ParseError where
 newParseError ::
   -- | The expected 'Token'.
   Token ->
-  -- | The recieved 'Token'.
+  -- | The received 'Token'.
   Token ->
   -- | TODO: docs
   ParseError
-newParseError expected recieved =
+newParseError expected received =
   ParseError
     { parse_error_expected = Set.singleton expected
-    , parse_error_recieved = Set.singleton recieved
+    , parse_error_received = Set.singleton received
     }
 
 -- ParseError - Lenses ---------------------------------------------------------
@@ -83,9 +83,9 @@ newParseError expected recieved =
 parseErrorExpected :: Lens' ParseError (Set Token)
 parseErrorExpected = lens parse_error_expected \s x -> s { parse_error_expected = x }
 
--- | Lens focusing on the 'parse_error_recieved' field of 'ParseError'.
+-- | Lens focusing on the 'parse_error_received' field of 'ParseError'.
 --
 -- @since 1.0.0
-parseErrorRecieved :: Lens' ParseError (Set Token)
-parseErrorRecieved = lens parse_error_recieved \s x -> s { parse_error_recieved = x }
+parseErrorReceived :: Lens' ParseError (Set Token)
+parseErrorReceived = lens parse_error_received \s x -> s { parse_error_received = x }
 
