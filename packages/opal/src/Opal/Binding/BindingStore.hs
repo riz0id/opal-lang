@@ -54,6 +54,7 @@ import Opal.Common.Symbol (Symbol)
 import Opal.Common.ScopeSet (ScopeSet)
 import Opal.Common.ScopeSet qualified as ScopeSet
 import Opal.Core (coreFormSymbol)
+import Opal.Primitives (primitiveSymbols)
 import Opal.Writer.Class (Display (..))
 import Opal.Writer.Doc qualified as Doc
 
@@ -124,7 +125,7 @@ listToBindingStore = foldr (uncurry insert) empty
 --
 -- @since 1.0.0
 coreBindingStore :: BindingStore
-coreBindingStore = listToBindingStore coreBindings
+coreBindingStore = listToBindingStore (coreBindings ++ primBindings)
   where
     coreBindings :: [(Symbol, Binding)]
     coreBindings = [
@@ -132,6 +133,10 @@ coreBindingStore = listToBindingStore coreBindings
             b = Binding (ScopeSet.singleton def) s
          in (s, b) | x <- [minBound .. maxBound]
       ]
+
+    primBindings :: [(Symbol, Binding)]
+    primBindings =
+      [ (sym, Binding (ScopeSet.singleton def) sym) | sym <- primitiveSymbols ]
 
 -- BindingStore - Insert -------------------------------------------------------
 

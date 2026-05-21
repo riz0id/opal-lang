@@ -1,60 +1,31 @@
-;; define.opal — user-facing define-style macros.
+;; define.opal — user-facing define-style macros, written using the
+;; Stage-1 syntax-inspector primitives.
 ;;
-;; Today this module provides a single working transformer
-;; (`define-true`) that demonstrates the macro pipeline end-to-end.
-;; The original aspiration — a `plain-define` macro that turns
-;; `(plain-define x v)` into the core `(define x v)`, plus a `for`
-;; macro that takes `(for (i lo) hi body)` and lowers to a loop —
-;; needs template-construction primitives that Opal's transformer
-;; language doesn't yet support:
+;; This module is the first real demonstration that the transformer
+;; language supports more than constant outputs. `plain-define` takes a
+;; macro use `(plain-define <id> <rhs>)` and emits `(define <id> <rhs>)`
+;; — substituting the caller's identifier into the output. The
+;; mechanism:
 ;;
-;;   * No `quasi-syntax`/`unsyntax` to splice variables into output
-;;     templates.
-;;   * No `syntax->list` / `syntax-case` / `car` / `cdr` to
-;;     destructure the macro input.
+;;   1. `(syntax-e stx)` peels one layer of the input wrapper, yielding
+;;      `(DatumList [#'plain-define #'<id> #'<rhs>])`.
+;;   2. `(cdr (syntax-e stx))` drops the macro's name, leaving the args
+;;      `(DatumList [#'<id> #'<rhs>])`.
+;;   3. `(cons (quote-syntax define) ...)` prepends the symbol `define`,
+;;      giving `(DatumList [#'define #'<id> #'<rhs>])`.
+;;   4. `(datum->syntax stx ...)` lifts the datum back to a syntax
+;;      object, using `stx`'s lexical info (so the output inherits the
+;;      macro call's source location and lexical context).
 ;;
-;; A transformer can today only:
-;;   * Run lambda calculus over its input syntax (with no introspection
-;;     primitives).
-;;   * Return a literal syntax object via `(quote-syntax …)`.
-;;
-;; So the macros below are constant transformers — useful as
-;; demonstrations of the pipeline, not as a real user-level macro
-;; library. The full set will land once the transformer DSL grows
-;; primitives or a template form. Tracked aspirationally below.
+;; The full set of Stage-1 primitives this exercises:
+;;   `syntax-e`, `cdr`, `cons`, `quote-syntax`, `datum->syntax`.
 
 (module define
 
-  (import core-bool)
+  (export plain-define)
 
-  (export define-true)
-
-  ;; A macro that produces a binding for the symbol `t` with the
-  ;; value `true` (imported from `core-bool`). Any call shape works,
-  ;; e.g. `(define-true)` or `(define-true anything)` — the macro
-  ;; ignores its input and emits the same literal output.
-  ;;
-  ;; This is the most non-trivial transformer the current language
-  ;; supports: it constructs an output that references an *imported*
-  ;; identifier (`true`), exercising the import/binding-store path.
-  (define-syntax define-true
+  (define-syntax plain-define
     (lambda (stx)
-      (quote-syntax (define t true)))))
-
-;; -------------------------------------------------------------------
-;; Aspirational, not implementable today (kept as documentation):
-;;
-;;   (define-syntax plain-define
-;;     (lambda (stx)
-;;       ;; needs: syntax->list, list accessor primitives
-;;       (let ([id  (syntax-cadr  stx)]
-;;             [rhs (syntax-caddr stx)])
-;;         (quasi-syntax (define (unsyntax id) (unsyntax rhs))))))
-;;
-;;   (define-syntax for
-;;     (lambda (stx)
-;;       ;; expands (for (i lo) hi body) into a letrec-values loop.
-;;       ;; needs: same primitives as plain-define plus a way to
-;;       ;; construct multi-form output (a `begin` or `letrec-values`
-;;       ;; template).
-;;       …))
+      (datum->syntax stx
+        (cons (quote-syntax define)
+              (cdr (syntax-e stx)))))))

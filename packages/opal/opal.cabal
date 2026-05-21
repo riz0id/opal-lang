@@ -124,6 +124,7 @@ library
     Opal.Parser.Config
     Opal.Parser.Error
     Opal.Parser.Monad
+    Opal.Primitives
     Opal.Quasi
     Opal.Quasi.Reader
     Opal.Reader
@@ -131,6 +132,7 @@ library
     Opal.Resolve
     Opal.Syntax
     Opal.Syntax.Definition
+    Opal.Syntax.Primitive
     Opal.Syntax.ScopeInfo
     Opal.Syntax.Transformer
     Opal.Syntax.TH

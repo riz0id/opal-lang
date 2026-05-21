@@ -21,6 +21,7 @@ module Opal.Evaluator
     -- ** Evaluate
   , evalSExp
   , evalSApp
+  , evalPrimApp
   , evalSExpBody
     -- ** Query
   , getVariable
@@ -47,6 +48,8 @@ import Data.List.NonEmpty qualified as NonEmpty
 import Opal.Binding.Environment (Environment)
 import Opal.Binding.Environment qualified as Environment
 import Opal.Common.Symbol (Symbol (..))
+import Opal.Primitives (lookupPrimitive)
+import Opal.Syntax.Primitive (Primitive (..))
 import Opal.Evaluator.Monad
   ( Eval (..)
   , EvalConfig (..)
@@ -82,8 +85,27 @@ evalSExp (SVal val) = pure val
 evalSExp (SVar var) = getVariable var
 evalSExp (SApp app) = do
   evalSExp (NonEmpty.head app) >>= \case
-    DatumLam fun -> evalSApp fun (NonEmpty.tail app)
-    _            -> error ("cannot apply arguments to non-function datum: " <> show app)
+    DatumLam  fun -> evalSApp fun (NonEmpty.tail app)
+    DatumPrim sym -> evalPrimApp sym (NonEmpty.tail app)
+    _             -> error ("cannot apply arguments to non-function datum: " <> show app)
+
+-- | TODO: docs
+--
+-- @since 1.0.0
+evalPrimApp :: Symbol -> [SExp] -> Eval Datum
+evalPrimApp sym sexps =
+  case lookupPrimitive sym of
+    Nothing   -> error ("evalPrimApp: no implementation for primitive " <> show sym)
+    Just prim -> do
+      let count = length sexps
+      let arity = prim_arity prim
+      unless (arity == count) $
+        throwError (EvalPrimError
+          (show sym ++ ": expected " ++ show arity ++ " argument(s), got " ++ show count))
+      args <- traverse evalSExp sexps
+      case prim_apply prim args of
+        Left  msg -> throwError (EvalPrimError msg)
+        Right val -> pure val
 
 -- | TODO: docs
 --

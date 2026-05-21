@@ -53,7 +53,9 @@ import Opal.Evaluator.State
   , evalBindingStore
   )
 import Opal.Error (ErrorNotBound, Error (..))
+import Opal.Error.ErrorCode (ErrorCode (..))
 import Opal.Writer (Display (..))
+import Opal.Writer qualified as Doc
 
 -- Eval ------------------------------------------------------------------------
 
@@ -98,12 +100,18 @@ runEval c s eval =
 -- @since 1.0.0
 data EvalError
   = EvalNotBound {-# UNPACK #-} !ErrorNotBound
-    -- ^ TODO: docs
+    -- ^ An identifier referenced inside an evaluated expression had no
+    -- binding in the environment.
+  | EvalPrimError String
+    -- ^ A built-in primitive (see "Opal.Primitives") raised an error —
+    -- e.g. arity mismatch or a type mismatch like @car@ on a non-list.
 
 -- | @since 1.0.0
 instance Error EvalError where
-  errorCode (EvalNotBound exn) = errorCode exn
+  errorCode (EvalNotBound  exn) = errorCode exn
+  errorCode (EvalPrimError _)   = ErrorCode "OPAL" 50001
 
 -- | @since 1.0.0
 instance Display EvalError where
-  display (EvalNotBound exn) = display exn
+  display (EvalNotBound  exn) = display exn
+  display (EvalPrimError msg) = Doc.string msg

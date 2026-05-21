@@ -46,7 +46,7 @@ import Control.Monad.Reader (MonadReader(..))
 
 import Data.Default (Default (..))
 import Data.Foldable (for_, traverse_)
-import Data.List.NonEmpty (NonEmpty)
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Primitive.MutVar (MutVar, newMutVar, modifyMutVar', readMutVar)
 import Data.Traversable (for)
@@ -482,7 +482,14 @@ applyTransformer t stx = withIntroScope \introScope -> do
   transformed <- do
     writeLog (LogEnterMacroExpand usageStx)
 
-    expr   <- expanderParse [syntax| (?t:lam ?stx) |]
+    -- Construct the SExp directly instead of going through
+    -- expanderParse on `(?t:lam ?stx)`. The parser would otherwise
+    -- turn a list-shaped `usageStx` into an `SApp` and the evaluator
+    -- would try to *call* the macro's input as a function. We want
+    -- to pass the input as a *value* — specifically a `DatumStx`
+    -- wrapping the syntax object — so the transformer body can
+    -- inspect it via `syntax-e`/`syntax->list`/etc.
+    let expr = SApp (SVal (DatumLam t) :| [SVal (DatumStx usageStx)])
     result <- expanderEval expr
 
     case result of
@@ -534,7 +541,17 @@ expandId id = do
 expandIdApplication :: Identifier -> [Syntax] -> Expand Syntax
 expandIdApplication id stxs = do
   t <- lookupEnvironment id
-  dispatch t [syntax| (?id:id ?stxs ...) |]
+  case t of
+    TfmDatum (DatumPrim _) -> do
+      -- A built-in primitive: this is a runtime function call, not a
+      -- macro or core form. Expand the arguments and reassemble the
+      -- application form preserving the head identifier. The parser
+      -- will later turn this into `SApp (SVar sym :| args)`, and the
+      -- evaluator's `DatumPrim` dispatch in 'evalSExp' takes over at
+      -- runtime.
+      results <- traverse expand stxs
+      pure [syntax| (?id:id ?results ...) |]
+    _ -> dispatch t [syntax| (?id:id ?stxs ...) |]
 
 expandApplication :: [Syntax] -> Expand Syntax
 expandApplication [] = throwBadSyntax CoreApp [syntax| () |]

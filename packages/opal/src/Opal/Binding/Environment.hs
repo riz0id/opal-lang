@@ -47,7 +47,8 @@ import GHC.Generics (Generic)
 
 import Opal.Common.Symbol (Symbol)
 import Opal.Core (CoreForm, coreFormSymbol)
-import Opal.Syntax (Datum)
+import Opal.Primitives (primitiveSymbols)
+import Opal.Syntax (Datum (..))
 import Opal.Syntax.Transformer (Transformer (..))
 import Opal.Writer.Class (Display (..))
 import Opal.Writer.Doc qualified as Doc
@@ -100,7 +101,9 @@ singleton = coerce @(_ -> Transformer -> _) Map.singleton
 --
 -- @since 1.0.0
 coreEnvironment :: Environment
-coreEnvironment = fromList [ (coreFormSymbol x, TfmCore x) | x <- [minBound .. maxBound] ]
+coreEnvironment = fromList $
+  [ (coreFormSymbol x, TfmCore x) | x <- [minBound .. maxBound] ]
+  ++ [ (sym, TfmDatum (DatumPrim sym)) | sym <- primitiveSymbols ]
 
 -- Environment - Insert -------------------------------------------------------
 

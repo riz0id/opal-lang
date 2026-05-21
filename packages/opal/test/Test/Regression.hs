@@ -22,6 +22,7 @@ where
 import Control.Lens (view)
 
 import Data.Default (def)
+import Data.Foldable (for_)
 import Data.List.NonEmpty (NonEmpty (..))
 
 import Hedgehog (annotate, evalEither, evalIO, (===))
@@ -46,7 +47,10 @@ import Opal.Expander.Monad
   )
 import Opal.Expander (withIntroScope)
 import Opal.Parser (runParseSyntax)
-import Opal.Syntax (SExp (..), syntaxToDatum)
+import Opal.Evaluator (runEvalSExp)
+import Opal.Primitives (lookupPrimitive)
+import Opal.Syntax (Datum (..), SExp (..), syntaxToDatum)
+import Opal.Syntax.Primitive (prim_apply)
 import Opal.Syntax.ScopeInfo qualified as ScopeInfo
 import Opal.Syntax.TH (syntax)
 
@@ -76,6 +80,7 @@ testTree =
     , expanderInsideEdgeVsUseSiteScopeConflated
     , useSiteScopeGateWrongContext
     , quasiReaderDoesNotHandleComments
+    , primitivesAreReachableFromMacros
     ]
 
 -- | Regression tests for
@@ -471,4 +476,94 @@ quasiReaderDoesNotHandleComments =
                                           #f) |]
             withoutComment = [syntax| (#t #f) |]
         syntaxToDatum withComment === syntaxToDatum withoutComment
+    ]
+
+-- | Stage-1 regression tests for the new primitive infrastructure
+-- (see @plans/template-construction-primitives.md@). Exercises both
+-- direct calls to 'prim_apply' (verifies each primitive's
+-- implementation) and the end-to-end evaluator path (verifies the
+-- 'DatumPrim' dispatch in 'evalSExp' is wired up).
+primitivesAreReachableFromMacros :: TestTree
+primitivesAreReachableFromMacros =
+  testGroup "primitives-stage-1"
+    [ testUnit "all expected primitives are present in the table" do
+        annotate "plans/template-construction-primitives.md — Stage 1"
+        let names =
+              [ "car", "cdr", "cons", "null?", "pair?", "eq?"
+              , "syntax-e", "syntax->list", "syntax->datum"
+              , "datum->syntax", "identifier?", "syntax?"
+              ]
+        for_ names \nm ->
+          case lookupPrimitive nm of
+            Nothing -> fail ("missing primitive: " <> show nm)
+            Just _  -> pure ()
+
+    , testUnit "car returns the first element of a DatumList" do
+        let Just p = lookupPrimitive "car"
+        case prim_apply p [DatumList [DatumI32 1, DatumI32 2, DatumI32 3]] of
+          Left  err -> fail err
+          Right val -> val === DatumI32 1
+
+    , testUnit "cdr returns the tail of a DatumList" do
+        let Just p = lookupPrimitive "cdr"
+        case prim_apply p [DatumList [DatumI32 1, DatumI32 2, DatumI32 3]] of
+          Left  err -> fail err
+          Right val -> val === DatumList [DatumI32 2, DatumI32 3]
+
+    , testUnit "cons prepends to a DatumList" do
+        let Just p = lookupPrimitive "cons"
+        case prim_apply p [DatumI32 0, DatumList [DatumI32 1, DatumI32 2]] of
+          Left  err -> fail err
+          Right val -> val === DatumList [DatumI32 0, DatumI32 1, DatumI32 2]
+
+    , testUnit "null? distinguishes empty from non-empty" do
+        let Just p = lookupPrimitive "null?"
+        case prim_apply p [DatumList []] of
+          Left err  -> fail err
+          Right val -> val === DatumB True
+        case prim_apply p [DatumList [DatumI32 1]] of
+          Left err  -> fail err
+          Right val -> val === DatumB False
+
+    , testUnit "eq? compares by structural equality on Datums" do
+        let Just p = lookupPrimitive "eq?"
+        case prim_apply p [DatumI32 7, DatumI32 7] of
+          Left err  -> fail err
+          Right val -> val === DatumB True
+        case prim_apply p [DatumI32 7, DatumI32 8] of
+          Left err  -> fail err
+          Right val -> val === DatumB False
+
+    , testUnit "syntax->datum strips lexical info" do
+        let Just p = lookupPrimitive "syntax->datum"
+            -- Use #t/#f so the quasi-reader produces real booleans
+            -- (it treats unprefixed numerals as symbols, not ints).
+            stx   = [syntax| (#t #f) |]
+        case prim_apply p [DatumStx stx] of
+          Left err  -> fail err
+          Right val -> val === DatumList [DatumB True, DatumB False]
+
+    , testUnit "syntax-e peels one layer of a list-shaped syntax" do
+        let Just p = lookupPrimitive "syntax-e"
+            stx   = [syntax| (#t #f) |]
+        case prim_apply p [DatumStx stx] of
+          Left err  -> fail err
+          Right val ->
+            case val of
+              DatumList [DatumStx a, DatumStx b] -> do
+                syntaxToDatum a === DatumB True
+                syntaxToDatum b === DatumB False
+              _ -> fail ("unexpected syntax-e result: " <> show val)
+
+    , testUnit "evaluator dispatches DatumPrim via SApp" do
+        -- End-to-end wiring test: build (car (DatumList [1,2,3])) as
+        -- an SExp directly and evaluate. Confirms the new evalSExp
+        -- branch routes through evalPrimApp.
+        let prog =
+              SApp (SVal (DatumPrim "car")
+                    :| [ SVal (DatumList [DatumI32 1, DatumI32 2, DatumI32 3]) ])
+        result <- evalIO (runEvalSExp def def prog)
+        case result of
+          Left _exn      -> fail "Eval threw an EvalError"
+          Right (val, _) -> val === DatumI32 1
     ]

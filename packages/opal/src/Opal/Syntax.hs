@@ -136,6 +136,12 @@ data Datum
     -- ^ A list of datums.
   | DatumStx {-# UNPACK #-} !Syntax
     -- ^ The 'Datum' representation of a syntax object.
+  | DatumPrim {-# UNPACK #-} !Symbol
+    -- ^ A reference to a built-in primitive function. The 'Symbol' is the
+    -- primitive's name (e.g. @car@, @cdr@, @syntax-e@); the actual
+    -- Haskell implementation lives in 'Opal.Primitives.primitiveTable',
+    -- indexed by that symbol. This indirection keeps 'Datum' free of
+    -- function-valued fields so it stays trivially 'Eq'\/@Ord@\/@Lift@.
   deriving (Eq, Generic, Lift, Ord)
 
 -- | Pattern synonym for @('DatumVal' (ValueB _))@.
@@ -175,7 +181,8 @@ pattern DatumVoid :: Datum
 pattern DatumVoid = DatumVal ValueVoid
 
 {-# COMPLETE
-  DatumB, DatumC, DatumS, DatumF32, DatumI32, DatumLam, DatumList, DatumStx
+  DatumB, DatumC, DatumS, DatumF32, DatumI32, DatumLam, DatumList, DatumStx,
+  DatumPrim
   #-}
 
 -- | @since 1.0.0
@@ -184,6 +191,7 @@ instance Display Datum where
   display (DatumLam  x) = display x
   display (DatumList x) = displayList x
   display (DatumStx  x) = display x
+  display (DatumPrim s) = Doc.string "<primitive: " <> display s <> Doc.char '>'
 
   displayList xs = Doc.char '\'' <> Doc.parens (Doc.vsep (map display xs))
 
@@ -501,6 +509,13 @@ datumToSyntax info (DatumVal  val)  = SyntaxVal val info
 datumToSyntax info (DatumLam  fun)  = SyntaxLam fun info
 datumToSyntax info (DatumList vals) = SyntaxList (map (datumToSyntax info) vals) info
 datumToSyntax _    (DatumStx  stx)  = stx
+datumToSyntax info (DatumPrim sym)  = SyntaxS sym info
+  -- A primitive lifted into syntax appears as a symbol-shaped syntax
+  -- carrying the primitive's name. When the resulting syntax is later
+  -- resolved against an environment that includes that primitive
+  -- (e.g. via `(import #%core)`), it roundtrips back to the same
+  -- `DatumPrim` — preserving the primitive's identity across the
+  -- syntax boundary.
 
 -- | Converts a 'Syntax' object to a datum by stripping the syntax object's
 -- lexical information.

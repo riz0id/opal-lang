@@ -74,6 +74,8 @@ import Data.Maybe (fromMaybe)
 
 import GHC.Generics (Generic)
 
+import Data.HashMap.Strict qualified as HashMap
+
 import Opal.Common.Lens (defineLenses)
 import Opal.Common.Phase (Phase, PhaseShift)
 import Opal.Common.Symbol (Symbol)
@@ -81,9 +83,11 @@ import Opal.Core (CoreForm (..), coreFormIdentifier, coreFormSymbol)
 import Opal.Module.Definitions
 import Opal.Module.Import
 import Opal.Module.Export
+import Opal.Primitives (primitiveSymbols)
 import Opal.Writer (Display (..), (<+>))
 import Opal.Writer qualified as Doc
-import Opal.Syntax (Identifier, Syntax, syntaxScope, Datum (..))
+import Opal.Syntax (Identifier (..), Syntax, SyntaxInfo (..), syntaxScope, Datum (..))
+import Opal.Syntax.ScopeInfo qualified as ScopeInfo
 import Opal.Syntax.TH (syntax)
 import Opal.Syntax.Transformer (Transformer (..))
 
@@ -261,11 +265,38 @@ newCoreModule ns =
     coreForms :: [CoreForm]
     coreForms = [minBound .. maxBound]
 
+    -- Synthetic identifiers for primitives, using the same default
+    -- lexical info as core-form identifiers (a single phase-independent
+    -- scope = `def`). Matches the binding store entries set up in
+    -- `Opal.Binding.BindingStore.coreBindingStore`.
+    primIdentifiers :: [Identifier]
+    primIdentifiers = map mkPrimIdentifier primitiveSymbols
+      where
+        mkPrimIdentifier s = Identifier
+          { idt_symbol = s
+          , idt_info   = SyntaxInfo
+              { stx_info_source     = Nothing
+              , stx_info_scopes     = ScopeInfo.insert Nothing def def
+              , stx_info_properties = HashMap.empty
+              }
+          }
+
     coreExportSpec :: [ExportSpec]
-    coreExportSpec = map (ExportSpecPhaseless . coreFormIdentifier) coreForms
+    coreExportSpec =
+      map (ExportSpecPhaseless . coreFormIdentifier) coreForms
+        ++ map ExportSpecPhaseless primIdentifiers
 
     coreNamespace :: Namespace
-    coreNamespace = foldr (\form -> over (nsVariable def (coreFormSymbol form)) (const (Just (TfmCore form)))) ns coreForms
+    coreNamespace =
+      let withCoreForms =
+            foldr (\form -> over (nsVariable def (coreFormSymbol form))
+                                 (const (Just (TfmCore form))))
+                  ns coreForms
+          withPrims =
+            foldr (\sym -> over (nsVariable def sym)
+                                (const (Just (TfmDatum (DatumPrim sym)))))
+                  withCoreForms primitiveSymbols
+       in withPrims
 
 -- | TODO: docs
 --
