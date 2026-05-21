@@ -265,13 +265,15 @@ dropBuffer n (Buffer fp len)
   | n < len   = Buffer (fp `plusForeignPtr` n) (len - n)
   | otherwise = emptyBuffer
 
--- | TODO: docs
+-- | Return the prefix of the 'Buffer' of length at most @n@. If @n@ is
+-- greater than or equal to the buffer's length, the whole buffer is
+-- returned. Mirrors 'Data.List.take' for buffers.
 --
 -- @since 1.0.0
 takeBuffer :: Int -> Buffer -> Buffer
 takeBuffer n (Buffer fp len)
-  | n < len   = Buffer fp (len - n)
-  | otherwise = emptyBuffer
+  | n < len   = Buffer fp n
+  | otherwise = Buffer fp len
 
 -- | Copy a slice of a 'Buffer' to a @('Ptr' 'Word8')@. The slice to fill is
 -- specified by an offset into the buffers and the length of the slice, both
